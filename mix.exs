@@ -1,60 +1,65 @@
 defmodule Embassy.MixProject do
   use Mix.Project
 
+  @source_url "https://github.com/spacebat/embassy"
+  @version "0.1.0-dev"
+
   def project do
     [
       app: :embassy,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.19",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      usage_rules: usage_rules()
+      description: description(),
+      package: package(),
+      docs: docs(),
+      source_url: @source_url
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       extra_applications: [:logger]
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
-      {:usage_rules, "~> 1.0", only: [:dev]},
-      {:credo, "~> 1.0"},
-      {:igniter, "~> 0.6", only: [:dev, :test]}
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:plug, "~> 1.16"},
+      {:finch, "~> 0.19"},
+      {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.2"},
+      {:bypass, "~> 2.1", only: :test},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 
-  defp usage_rules do
-    # Example for those using claude.
+  defp description do
+    "Phoenix-side reverse proxy and per-instance config harness for " <>
+      "running Phoenix as the front door to a backend web application."
+  end
+
+  defp package do
     [
-      file: "CLAUDE.md",
-      # rules to include directly in CLAUDE.md
-      usage_rules: ["usage_rules:all"],
-      skills: [
-        location: ".claude/skills",
-        # build skills that combine multiple usage rules
-        build: [
-          "ash-framework": [
-            # The description tells people how to use this skill.
-            description:
-              "Use this skill working with Ash Framework or any of its extensions. Always consult this when making any domain changes, features or fixes.",
-            # Include all Ash dependencies
-            usage_rules: [:ash, ~r/^ash_/]
-          ],
-          "phoenix-framework": [
-            description:
-              "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
-            # Include all Phoenix dependencies
-            usage_rules: [:phoenix, ~r/^phoenix_/]
-          ]
-        ]
-      ]
+      maintainers: ["Andrew Kirkpatrick"],
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_url: @source_url,
+      source_ref: "v#{@version}",
+      extras: ["README.md", "CHANGELOG.md"]
     ]
   end
 end

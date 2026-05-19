@@ -185,4 +185,24 @@ defmodule Embassy.ReverseProxyTest do
 
     refute List.keyfind(conn.resp_headers, "connection", 0)
   end
+
+  test "upstream connection failure returns 502 and emits :exception telemetry", %{
+    bypass: bypass,
+    opts: opts
+  } do
+    {:ok, collector} =
+      TelemetryCollector.attach([[:embassy, :proxy, :exception]])
+
+    Bypass.down(bypass)
+
+    conn = conn(:get, "/") |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 502
+    assert conn.resp_body == "Bad gateway: upstream unreachable"
+
+    events = TelemetryCollector.events(collector)
+    assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
+    assert meta.kind == :upstream_error
+    assert meta.instance == ReverseProxyTest.Instance
+  end
 end

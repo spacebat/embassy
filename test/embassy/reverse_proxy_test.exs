@@ -223,4 +223,32 @@ defmodule Embassy.ReverseProxyTest do
     assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
     assert meta.kind == :unsupported_upgrade
   end
+
+  test "request body exceeding max_body_length returns 413 with telemetry", %{
+    bypass: bypass
+  } do
+    {:ok, collector} =
+      TelemetryCollector.attach([[:embassy, :proxy, :exception]])
+
+    opts =
+      Embassy.ReverseProxy.init(
+        embassy: ReverseProxyTest.Instance,
+        transport: {:http, "http://localhost:#{bypass.port}"},
+        max_body_length: 10
+      )
+
+    body = String.duplicate("x", 1_000)
+
+    conn =
+      conn(:post, "/", body)
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 413
+    assert conn.resp_body =~ "Payload"
+
+    events = TelemetryCollector.events(collector)
+    assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
+    assert meta.kind == :body_too_large
+  end
 end

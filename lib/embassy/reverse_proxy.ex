@@ -103,7 +103,33 @@ defmodule Embassy.ReverseProxy do
       metadata
     )
 
-    {body, conn} = read_request_body(conn, opts.max_body_length)
+    case read_request_body(conn, opts.max_body_length) do
+      {:halt_too_large, conn} ->
+        handle_body_too_large(conn, metadata, start_time, opts.max_body_length)
+
+      {body, conn} ->
+        dispatch_upstream(conn, snapshot, transport, body, metadata, start_time)
+    end
+  end
+
+  defp handle_body_too_large(conn, metadata, start_time, limit) do
+    Logger.warning("Embassy.ReverseProxy: request body exceeded max_body_length=#{limit}")
+
+    :telemetry.execute(
+      [:embassy, :proxy, :exception],
+      %{
+        monotonic_time: System.monotonic_time(),
+        duration: System.monotonic_time() - start_time
+      },
+      Map.put(metadata, :kind, :body_too_large)
+    )
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(413, "Payload Too Large")
+  end
+
+  defp dispatch_upstream(conn, snapshot, transport, body, metadata, start_time) do
     req = build_request(conn, body, transport)
 
     case Finch.request(req, snapshot.finch) do

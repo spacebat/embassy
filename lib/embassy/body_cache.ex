@@ -17,8 +17,8 @@ defmodule Embassy.BodyCache do
         json_decoder: Jason,
         body_reader: {Embassy.BodyCache, :read_body, []}
 
-  Then in `Embassy.ReverseProxy.call/2`, the raw body is recovered via
-  `Embassy.BodyCache.fetch(conn)`.
+  Then in `Embassy.ReverseProxy`, the raw body is recovered via
+  `Embassy.BodyCache.fetch/1` before forwarding the request upstream.
   """
 
   alias Plug.Conn

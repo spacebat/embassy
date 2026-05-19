@@ -58,6 +58,45 @@ defmodule Embassy.ReverseProxy do
       transport: transport
     }
 
+    if websocket_upgrade?(conn) do
+      handle_unsupported_upgrade(conn, metadata, start_time)
+    else
+      forward_request(conn, snapshot, transport, opts, metadata, start_time)
+    end
+  end
+
+  defp websocket_upgrade?(conn) do
+    conn.req_headers
+    |> Enum.any?(fn
+      {"upgrade", value} -> String.downcase(value) == "websocket"
+      _ -> false
+    end)
+  end
+
+  defp handle_unsupported_upgrade(conn, metadata, start_time) do
+    Logger.warning(
+      "Embassy.ReverseProxy: WebSocket upgrade not supported in this release. " <>
+        "Use embassy_rails for ActionCable, or a future WS-forwarding release of embassy."
+    )
+
+    :telemetry.execute(
+      [:embassy, :proxy, :exception],
+      %{
+        monotonic_time: System.monotonic_time(),
+        duration: System.monotonic_time() - start_time
+      },
+      Map.put(metadata, :kind, :unsupported_upgrade)
+    )
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(
+      426,
+      "Upgrade Required: WebSocket upgrades not supported in this release of embassy."
+    )
+  end
+
+  defp forward_request(conn, snapshot, transport, opts, metadata, start_time) do
     :telemetry.execute(
       [:embassy, :proxy, :start],
       %{monotonic_time: start_time},

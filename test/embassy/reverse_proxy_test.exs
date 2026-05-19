@@ -205,4 +205,22 @@ defmodule Embassy.ReverseProxyTest do
     assert meta.kind == :upstream_error
     assert meta.instance == ReverseProxyTest.Instance
   end
+
+  test "WebSocket upgrade request short-circuits to 426 with telemetry", %{opts: opts} do
+    {:ok, collector} =
+      TelemetryCollector.attach([[:embassy, :proxy, :exception]])
+
+    conn =
+      conn(:get, "/cable")
+      |> Plug.Conn.put_req_header("upgrade", "websocket")
+      |> Plug.Conn.put_req_header("connection", "upgrade")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 426
+    assert conn.resp_body =~ "WebSocket"
+
+    events = TelemetryCollector.events(collector)
+    assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
+    assert meta.kind == :unsupported_upgrade
+  end
 end

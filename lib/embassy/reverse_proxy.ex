@@ -137,7 +137,40 @@ defmodule Embassy.ReverseProxy do
   end
 
   defp forward_headers(conn) do
-    Enum.reject(conn.req_headers, fn {name, _} -> name in @hop_by_hop end)
+    conn.req_headers
+    |> Enum.reject(fn {name, _} -> name in @hop_by_hop end)
+    |> add_or_append_xff(peer_address(conn))
+    |> add_if_absent("x-forwarded-proto", Atom.to_string(conn.scheme))
+    |> add_if_absent("x-forwarded-host", conn_host(conn))
+  end
+
+  defp add_or_append_xff(headers, peer) do
+    case List.keyfind(headers, "x-forwarded-for", 0) do
+      {"x-forwarded-for", existing} ->
+        List.keystore(
+          headers,
+          "x-forwarded-for",
+          0,
+          {"x-forwarded-for", existing <> ", " <> peer}
+        )
+
+      nil ->
+        [{"x-forwarded-for", peer} | headers]
+    end
+  end
+
+  defp add_if_absent(headers, name, value) do
+    case List.keyfind(headers, name, 0) do
+      nil -> [{name, value} | headers]
+      _ -> headers
+    end
+  end
+
+  defp peer_address(conn) do
+    case conn.remote_ip do
+      {a, b, c, d} -> "#{a}.#{b}.#{c}.#{d}"
+      ip when is_tuple(ip) -> ip |> :inet.ntoa() |> to_string()
+    end
   end
 
   defp conn_host(conn) do

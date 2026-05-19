@@ -86,4 +86,103 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.status == 200
     assert conn.resp_body == payload
   end
+
+  test "injects X-Forwarded-For with the peer IP when absent", %{
+    bypass: bypass,
+    opts: opts
+  } do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      xff = Plug.Conn.get_req_header(conn, "x-forwarded-for")
+      Plug.Conn.resp(conn, 200, Enum.join(xff, ","))
+    end)
+
+    conn =
+      conn(:get, "/")
+      |> Map.put(:remote_ip, {1, 2, 3, 4})
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.resp_body == "1.2.3.4"
+  end
+
+  test "appends to existing X-Forwarded-For to preserve the proxy chain", %{
+    bypass: bypass,
+    opts: opts
+  } do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      [xff] = Plug.Conn.get_req_header(conn, "x-forwarded-for")
+      Plug.Conn.resp(conn, 200, xff)
+    end)
+
+    conn =
+      conn(:get, "/")
+      |> Plug.Conn.put_req_header("x-forwarded-for", "10.0.0.1")
+      |> Map.put(:remote_ip, {1, 2, 3, 4})
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.resp_body == "10.0.0.1, 1.2.3.4"
+  end
+
+  test "preserves existing X-Forwarded-Proto and X-Forwarded-Host", %{
+    bypass: bypass,
+    opts: opts
+  } do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      xfp = Plug.Conn.get_req_header(conn, "x-forwarded-proto") |> List.first()
+      xfh = Plug.Conn.get_req_header(conn, "x-forwarded-host") |> List.first()
+      Plug.Conn.resp(conn, 200, "#{xfp}|#{xfh}")
+    end)
+
+    conn =
+      conn(:get, "/")
+      |> Plug.Conn.put_req_header("x-forwarded-proto", "https")
+      |> Plug.Conn.put_req_header("x-forwarded-host", "edge.example.com")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.resp_body == "https|edge.example.com"
+  end
+
+  test "sets X-Forwarded-Proto and X-Forwarded-Host from conn when absent", %{
+    bypass: bypass,
+    opts: opts
+  } do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      xfp = Plug.Conn.get_req_header(conn, "x-forwarded-proto") |> List.first()
+      xfh = Plug.Conn.get_req_header(conn, "x-forwarded-host") |> List.first()
+      Plug.Conn.resp(conn, 200, "#{xfp}|#{xfh}")
+    end)
+
+    conn =
+      conn(:get, "/")
+      |> Map.put(:scheme, :http)
+      |> Map.put(:host, "consumer.example.com")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.resp_body == "http|consumer.example.com"
+  end
+
+  test "strips hop-by-hop headers from outbound request", %{bypass: bypass, opts: opts} do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      conn_keepalive = Plug.Conn.get_req_header(conn, "connection")
+      Plug.Conn.resp(conn, 200, Enum.join(conn_keepalive, ","))
+    end)
+
+    conn =
+      conn(:get, "/")
+      |> Plug.Conn.put_req_header("connection", "close")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.resp_body == ""
+  end
+
+  test "strips hop-by-hop headers from inbound response", %{bypass: bypass, opts: opts} do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("connection", "keep-alive")
+      |> Plug.Conn.resp(200, "ok")
+    end)
+
+    conn = conn(:get, "/") |> Embassy.ReverseProxy.call(opts)
+
+    refute List.keyfind(conn.resp_headers, "connection", 0)
+  end
 end

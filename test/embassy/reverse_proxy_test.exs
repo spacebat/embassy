@@ -251,4 +251,18 @@ defmodule Embassy.ReverseProxyTest do
     assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
     assert meta.kind == :body_too_large
   end
+
+  test "UDS transport is plumbed to Finch (unreachable socket -> 502)", %{} do
+    bogus = "/tmp/embassy_test_no_such_socket_#{System.unique_integer([:positive])}.sock"
+
+    opts =
+      Embassy.ReverseProxy.init(
+        embassy: ReverseProxyTest.Instance,
+        transport: {:uds, bogus}
+      )
+
+    conn = conn(:get, "/") |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 502
+  end
 end

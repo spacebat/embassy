@@ -265,4 +265,70 @@ defmodule Embassy.ReverseProxyTest do
 
     assert conn.status == 502
   end
+
+  test "register_before_send callback fires on the 200 path", %{bypass: bypass, opts: opts} do
+    Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      Plug.Conn.resp(conn, 200, "ok")
+    end)
+
+    tag = :erlang.unique_integer()
+
+    conn =
+      conn(:get, "/")
+      |> Plug.Conn.register_before_send(fn c ->
+        Plug.Conn.put_resp_header(c, "x-augmented", "#{tag}")
+      end)
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert {"x-augmented", _} = List.keyfind(conn.resp_headers, "x-augmented", 0)
+  end
+
+  test "register_before_send callback fires on the 502 path", %{bypass: bypass, opts: opts} do
+    Bypass.down(bypass)
+
+    conn =
+      conn(:get, "/")
+      |> Plug.Conn.register_before_send(fn c ->
+        Plug.Conn.put_resp_header(c, "x-augmented", "yes")
+      end)
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 502
+    assert {"x-augmented", "yes"} in conn.resp_headers
+  end
+
+  test "register_before_send callback fires on the 426 path", %{opts: opts} do
+    conn =
+      conn(:get, "/cable")
+      |> Plug.Conn.put_req_header("upgrade", "websocket")
+      |> Plug.Conn.register_before_send(fn c ->
+        Plug.Conn.put_resp_header(c, "x-augmented", "yes")
+      end)
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 426
+    assert {"x-augmented", "yes"} in conn.resp_headers
+  end
+
+  test "register_before_send callback fires on the 413 path", %{bypass: bypass} do
+    opts =
+      Embassy.ReverseProxy.init(
+        embassy: ReverseProxyTest.Instance,
+        transport: {:http, "http://localhost:#{bypass.port}"},
+        max_body_length: 10
+      )
+
+    body = String.duplicate("x", 1_000)
+
+    conn =
+      conn(:post, "/", body)
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Plug.Conn.register_before_send(fn c ->
+        Plug.Conn.put_resp_header(c, "x-augmented", "yes")
+      end)
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 413
+    assert {"x-augmented", "yes"} in conn.resp_headers
+  end
 end

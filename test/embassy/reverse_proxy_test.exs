@@ -50,4 +50,40 @@ defmodule Embassy.ReverseProxyTest do
              name == [:embassy, :proxy, :stop] and meta.status == 200
            end)
   end
+
+  test "POST forwards body bytes to upstream", %{bypass: bypass, opts: opts} do
+    Bypass.expect_once(bypass, "POST", "/echo", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      Plug.Conn.resp(conn, 200, body)
+    end)
+
+    conn =
+      conn(:post, "/echo", "ping-pong")
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 200
+    assert conn.resp_body == "ping-pong"
+  end
+
+  test "POST uses cached body from Embassy.BodyCache when present", %{
+    bypass: bypass,
+    opts: opts
+  } do
+    Bypass.expect_once(bypass, "POST", "/echo", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      Plug.Conn.resp(conn, 200, body)
+    end)
+
+    payload = "cached payload"
+
+    conn =
+      conn(:post, "/echo", payload)
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Plug.Conn.assign(:raw_body, [payload])
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 200
+    assert conn.resp_body == payload
+  end
 end

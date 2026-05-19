@@ -20,3 +20,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   injection.
 - `Embassy.BodyCache` `Plug.Parsers` `:body_reader` companion.
 - `:telemetry` events: `[:embassy, :proxy, :start | :stop | :exception]`.
+- 400 + `:body_read_error` telemetry on client body read failures.

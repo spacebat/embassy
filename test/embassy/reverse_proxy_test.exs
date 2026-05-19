@@ -331,4 +331,41 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.status == 413
     assert {"x-augmented", "yes"} in conn.resp_headers
   end
+
+  test "client body read error returns 400 with :body_read_error telemetry", %{bypass: bypass} do
+    {:ok, collector} =
+      TelemetryCollector.attach([[:embassy, :proxy, :exception]])
+
+    opts =
+      Embassy.ReverseProxy.init(
+        embassy: ReverseProxyTest.Instance,
+        transport: {:http, "http://localhost:#{bypass.port}"}
+      )
+
+    # Build a conn whose body adapter will return {:error, reason} on read.
+    # Plug.Test's Plug.Adapters.Test.Conn supports a body adapter; we can
+    # simulate failure by stuffing an :error-returning function into the conn.
+    # The cleanest test-only path: stash a sentinel chunk that makes read_body
+    # raise, or use Plug.Conn.put_private to inject. Simplest approach:
+    # set conn.adapter to a tiny module returning {:error, :test}.
+
+    {adapter_mod, adapter_state} = conn(:post, "/", "ignored").adapter
+
+    failing_adapter = {Embassy.Test.FailingReadAdapter, adapter_state}
+
+    conn =
+      conn(:post, "/", "ignored")
+      |> Map.put(:adapter, failing_adapter)
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Embassy.ReverseProxy.call(opts)
+
+    assert conn.status == 400
+    assert conn.resp_body =~ "Bad Request"
+
+    events = TelemetryCollector.events(collector)
+    assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
+    assert meta.kind == :body_read_error
+
+    _ = adapter_mod
+  end
 end

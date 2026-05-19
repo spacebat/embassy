@@ -107,6 +107,9 @@ defmodule Embassy.ReverseProxy do
       {:halt_too_large, conn} ->
         handle_body_too_large(conn, metadata, start_time, opts.max_body_length)
 
+      {:halt_body_error, reason, conn} ->
+        handle_body_read_error(conn, metadata, start_time, reason)
+
       {body, conn} ->
         dispatch_upstream(conn, snapshot, transport, body, metadata, start_time)
     end
@@ -127,6 +130,23 @@ defmodule Embassy.ReverseProxy do
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(413, "Payload Too Large")
+  end
+
+  defp handle_body_read_error(conn, metadata, start_time, reason) do
+    Logger.warning("Embassy.ReverseProxy: failed to read request body reason=#{inspect(reason)}")
+
+    :telemetry.execute(
+      [:embassy, :proxy, :exception],
+      %{
+        monotonic_time: System.monotonic_time(),
+        duration: System.monotonic_time() - start_time
+      },
+      Map.merge(metadata, %{kind: :body_read_error, reason: reason})
+    )
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(400, "Bad Request: failed to read request body")
   end
 
   defp dispatch_upstream(conn, snapshot, transport, body, metadata, start_time) do
@@ -175,6 +195,7 @@ defmodule Embassy.ReverseProxy do
         case read_body(conn, length: max) do
           {:ok, body, conn} -> {body, conn}
           {:more, _, conn} -> {:halt_too_large, conn}
+          {:error, reason} -> {:halt_body_error, reason, conn}
         end
 
       cached ->

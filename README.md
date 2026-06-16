@@ -32,6 +32,25 @@ frames to a backend.) See `CHANGELOG.md` for the full scope.
 
 ## Installation
 
+### With Igniter (recommended)
+
+```sh
+mix igniter.install embassy
+```
+
+This wires Embassy into your Phoenix app: adds `Finch` and `Embassy` to
+your supervision tree, a reverse-proxy forward and a `/cable` WebSocket
+upgrade to your router, and the `Embassy.BodyCache` body reader to your
+endpoint's `Plug.Parsers`. It prompts for the instance name and backend
+transport; pass `--name`, `--finch`, `--transport uds|http`, `--address`
+to skip the prompts, or `--no-proxy` / `--no-cable` / `--no-parsers` to
+omit a step. The `/cable` route is scaffolded with a placeholder handler
+— supply a `WebSock` handler (or install `embassy_rails`) to activate it.
+
+Prefer to wire it by hand? The manual steps follow.
+
+### By hand
+
 Add `:embassy` to your `mix.exs` deps:
 
 ```elixir

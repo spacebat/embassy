@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(no unreleased changes)
+### Added
+
+- `mix embassy.install` Igniter task that wires Embassy into a Phoenix
+  app (supervision tree, router forwards, `/cable` upgrade, body
+  reader), composably via `--no-proxy` / `--no-cable` / `--no-parsers`.
 
 ## [0.2.0] - 2026-05-24
 

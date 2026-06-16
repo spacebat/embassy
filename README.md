@@ -12,15 +12,23 @@ Embassy provides:
 - **`Embassy.BodyCache`** — a `Plug.Parsers` `:body_reader` companion
   so the parser doesn't eat the raw body before the proxy can forward
   it.
+- **`Embassy.Upgrade`** — a generic WebSocket-upgrade `Plug`. It
+  negotiates a subprotocol from the client's `sec-websocket-protocol`
+  header against a consumer-configured list (treating every
+  subprotocol as an opaque string) and hands off to a consumer-supplied
+  `WebSock` handler. Runtime adapters such as `embassy_rails` plug their
+  handler into this seam.
 - **`Embassy`** supervisor + `Embassy.Config` — per-instance
   configuration plumbing so the library composes cleanly with other
   embassy-family adapters (`embassy_rails`, future siblings).
-- `:telemetry` events at `[:embassy, :proxy, :start | :stop | :exception]`.
+- `:telemetry` events at `[:embassy, :proxy, :start | :stop | :exception]`
+  and `[:embassy, :upgrade, :rejected]`.
 
-This release does *not* include streaming bodies, WebSocket
-forwarding, retries, or HTTP/2 to upstream — those are scoped for
-later releases or sibling packages. See `CHANGELOG.md` for the v0.1
-scope.
+This release does *not* include streaming bodies, WebSocket frame
+*forwarding* to an upstream, retries, or HTTP/2 to upstream — those are
+scoped for later releases or sibling packages. (`Embassy.Upgrade`
+*terminates* a WebSocket and delegates to a handler; it does not proxy
+frames to a backend.) See `CHANGELOG.md` for the full scope.
 
 ## Installation
 
@@ -75,6 +83,36 @@ forward "/", Embassy.ReverseProxy,
   transport: {:http, "http://upstream.internal:3000"}
 ```
 
+## Terminating WebSockets
+
+`Embassy.Upgrade` negotiates the WebSocket upgrade and hands the
+connection to a `WebSock` handler you provide. Embassy itself ships no
+handler — that is the runtime adapter's job (e.g. `embassy_rails`
+supplies an ActionCable/AnyCable handler). Mount it ahead of the
+catch-all proxy forward:
+
+```elixir
+# router.ex
+scope "/" do
+  pipe_through :api
+
+  forward "/cable", Embassy.Upgrade,
+    handler: MyApp.CableHandler,
+    subprotocols: ["actioncable-v1-json"],
+    instance: MyApp.Embassy
+
+  forward "/", Embassy.ReverseProxy,
+    embassy: MyApp.Embassy,
+    transport: {:uds, "/tmp/puma.sock"}
+end
+```
+
+`handler` is any module implementing the `WebSock` behaviour;
+`subprotocols` is an opaque list matched (configured-list ordering
+wins) against the client's offer; `instance` tags rejection telemetry.
+Non-upgrade requests and unmatched subprotocols get a `426` plus an
+`[:embassy, :upgrade, :rejected]` event.
+
 ## Augmentation
 
 Embassy doesn't introduce hook abstractions — `Plug` already has them:
@@ -108,7 +146,7 @@ listening on.
 
 ## Status
 
-v0.1.0-dev. Not yet published to Hex.
+v0.2.0-dev. Not yet published to Hex.
 
 ## License
 

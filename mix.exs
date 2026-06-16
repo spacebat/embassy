@@ -32,6 +32,7 @@ defmodule Embassy.MixProject do
     [
       {:plug, "~> 1.16"},
       {:finch, "~> 0.19"},
+      {:websock_adapter, "~> 0.5"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.2"},
       {:bypass, "~> 2.1", only: :test},

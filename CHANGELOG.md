@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (no unreleased changes)
 
+## [0.2.0] - 2026-05-24
+
+### Added
+
+- `Embassy.Upgrade` generic WebSocket-upgrade Plug. Negotiates an
+  opaque-string subprotocol from the client's `sec-websocket-protocol`
+  header against a consumer-configured list and hands off to a
+  consumer-supplied `WebSock` handler. Embassy never names a specific
+  subprotocol; adapters like `embassy_rails` plug in their handler and
+  the protocol constant.
+- `Embassy.Upgrade.websocket_upgrade?/1` helper for consumers that
+  want to short-circuit non-WS traffic to a different plug.
+- `:telemetry` events: `[:embassy, :upgrade, :rejected]` with meta
+  `%{instance, kind, requested_subprotocols}` where `kind` is one of
+  `:not_an_upgrade | :no_subprotocol`.
+
+### Changed
+
+- New dep: `:websock_adapter ~> 0.5`.
+
 ## [0.1.0] - 2026-05-19
 
 ### Added

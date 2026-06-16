@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mix embassy.install` Igniter task that wires Embassy into a Phoenix
   app (supervision tree, router forwards, `/cable` upgrade, body
   reader), composably via `--no-proxy` / `--no-cable` / `--no-parsers`.
+  The task module is guarded with `Code.ensure_loaded?/1` so the package
+  still compiles without the optional `:igniter` dependency (the task
+  becomes a stub that raises a helpful error), letting igniter-free
+  path-dep consumers build embassy.
 - `Embassy.Upgrade` generic WebSocket-upgrade Plug. Negotiates an
   opaque-string subprotocol from the client's `sec-websocket-protocol`
   header against a consumer-configured list and hands off to a

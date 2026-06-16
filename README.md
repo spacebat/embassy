@@ -56,7 +56,7 @@ Add `:embassy` to your `mix.exs` deps:
 ```elixir
 def deps do
   [
-    {:embassy, "~> 0.1"}
+    {:embassy, "~> 0.2"}
   ]
 end
 ```

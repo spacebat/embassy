@@ -14,18 +14,7 @@ defmodule Embassy.ReverseProxy do
   import Plug.Conn
   require Logger
 
-  alias Embassy.{BodyCache, Config}
-
-  @hop_by_hop ~w(
-    connection
-    keep-alive
-    proxy-authenticate
-    proxy-authorization
-    te
-    trailer
-    transfer-encoding
-    upgrade
-  )
+  alias Embassy.{Config, Proxy}
 
   @default_max_body_length 50_000_000
 
@@ -150,7 +139,7 @@ defmodule Embassy.ReverseProxy do
   end
 
   defp dispatch_upstream(conn, snapshot, transport, body, metadata, start_time) do
-    req = build_request(conn, body, transport)
+    req = Proxy.build_request(conn, body, transport)
 
     case Finch.request(req, snapshot.finch) do
       {:ok, %Finch.Response{} = resp} ->
@@ -189,82 +178,7 @@ defmodule Embassy.ReverseProxy do
     end
   end
 
-  defp read_request_body(conn, max) do
-    case BodyCache.fetch(conn) do
-      "" ->
-        case read_body(conn, length: max) do
-          {:ok, body, conn} -> {body, conn}
-          {:more, _, conn} -> {:halt_too_large, conn}
-          {:error, reason} -> {:halt_body_error, reason, conn}
-        end
-
-      cached ->
-        {cached, conn}
-    end
-  end
-
-  defp build_request(conn, body, transport) do
-    {url, finch_opts} = transport_to_url_and_opts(conn, transport)
-    headers = forward_headers(conn)
-    Finch.build(conn.method, url, headers, body, finch_opts)
-  end
-
-  defp transport_to_url_and_opts(conn, {:uds, path}) do
-    {url_from_conn(conn, "http://" <> conn_host(conn)), [unix_socket: path]}
-  end
-
-  defp transport_to_url_and_opts(conn, {:http, base_url}) do
-    {url_from_conn(conn, base_url), []}
-  end
-
-  defp url_from_conn(conn, base) do
-    qs = if conn.query_string == "", do: "", else: "?" <> conn.query_string
-    base <> conn.request_path <> qs
-  end
-
-  defp forward_headers(conn) do
-    conn.req_headers
-    |> Enum.reject(fn {name, _} -> name in @hop_by_hop end)
-    |> add_or_append_xff(peer_address(conn))
-    |> add_if_absent("x-forwarded-proto", Atom.to_string(conn.scheme))
-    |> add_if_absent("x-forwarded-host", conn_host(conn))
-  end
-
-  defp add_or_append_xff(headers, peer) do
-    case List.keyfind(headers, "x-forwarded-for", 0) do
-      {"x-forwarded-for", existing} ->
-        List.keystore(
-          headers,
-          "x-forwarded-for",
-          0,
-          {"x-forwarded-for", existing <> ", " <> peer}
-        )
-
-      nil ->
-        [{"x-forwarded-for", peer} | headers]
-    end
-  end
-
-  defp add_if_absent(headers, name, value) do
-    case List.keyfind(headers, name, 0) do
-      nil -> [{name, value} | headers]
-      _ -> headers
-    end
-  end
-
-  defp peer_address(conn) do
-    case conn.remote_ip do
-      {a, b, c, d} -> "#{a}.#{b}.#{c}.#{d}"
-      ip when is_tuple(ip) -> ip |> :inet.ntoa() |> to_string()
-    end
-  end
-
-  defp conn_host(conn) do
-    case List.keyfind(conn.req_headers, "host", 0) do
-      {"host", value} -> value
-      _ -> conn.host
-    end
-  end
+  defp read_request_body(conn, max), do: Proxy.read_request_body(conn, max)
 
   defp copy_response(conn, %Finch.Response{status: status, headers: headers, body: body}) do
     conn
@@ -273,12 +187,8 @@ defmodule Embassy.ReverseProxy do
   end
 
   defp merge_response_headers(conn, headers) do
-    Enum.reduce(headers, conn, fn {name, value}, acc ->
-      if String.downcase(name) in @hop_by_hop do
-        acc
-      else
-        put_resp_header(acc, String.downcase(name), value)
-      end
+    Enum.reduce(Proxy.response_headers(headers), conn, fn {name, value}, acc ->
+      put_resp_header(acc, name, value)
     end)
   end
 end

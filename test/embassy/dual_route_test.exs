@@ -82,6 +82,12 @@ defmodule Embassy.DualRouteTest do
       end
     end
 
+    defmodule RaisingReporter do
+      @behaviour Embassy.DualRoute.Reporter
+      @impl true
+      def report(_result), do: raise("reporter boom")
+    end
+
     setup %{embassy: e} do
       handler = {__MODULE__, System.unique_integer([:positive])}
 
@@ -171,6 +177,61 @@ defmodule Embassy.DualRouteTest do
       conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
       assert conn.resp_body == "control"
       refute_receive {:telemetry, [:embassy, :dual_route, _], _, _}, 300
+    end
+
+    test "runs a proxy target as the shadow end-to-end", %{embassy: e} do
+      bypass = Bypass.open()
+
+      Bypass.expect_once(bypass, "GET", "/posts", fn conn ->
+        Plug.Conn.resp(conn, 200, "from-upstream")
+      end)
+
+      opts =
+        Embassy.DualRoute.init(
+          embassy: e,
+          control: {:plug, ControlPlug, []},
+          candidate: {:proxy, transport: {:http, "http://localhost:#{bypass.port}"}},
+          comparator: :status_only
+        )
+
+      conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
+      assert conn.resp_body == "control"
+      assert_receive {:telemetry, [:embassy, :dual_route, :match], _meas, meta}, 1_000
+      assert meta.status == {200, 200}
+    end
+
+    test "a canonical proxy upstream error becomes the user's 502", %{embassy: e} do
+      bypass = Bypass.open()
+      Bypass.down(bypass)
+
+      opts =
+        Embassy.DualRoute.init(
+          embassy: e,
+          control: {:proxy, transport: {:http, "http://localhost:#{bypass.port}"}},
+          candidate: {:plug, CandidatePlug, []},
+          canonical: :control,
+          comparator: :status_only
+        )
+
+      conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
+      assert conn.status == 502
+      assert conn.resp_body == "Bad gateway: upstream unreachable"
+    end
+
+    test "a reporter that raises is isolated: canonical unaffected, :error emitted", %{embassy: e} do
+      opts =
+        Embassy.DualRoute.init(
+          embassy: e,
+          control: {:plug, ControlPlug, []},
+          candidate: {:plug, CandidatePlug, []},
+          comparator: :exact,
+          reporter: RaisingReporter
+        )
+
+      conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
+      assert conn.resp_body == "control"
+      assert_receive {:telemetry, [:embassy, :dual_route, :error], _meas, meta}, 1_000
+      assert match?({:reporter_error, _}, meta.reason)
     end
   end
 end

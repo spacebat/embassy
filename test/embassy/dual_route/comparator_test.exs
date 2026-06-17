@@ -56,4 +56,47 @@ defmodule Embassy.DualRoute.ComparatorTest do
     c = cap(200, "<div>goodbye</div>")
     assert {:diff, %{reason: :html_body}} = Comparator.compare(:html, a, c)
   end
+
+  test ":json flags a non-JSON content-type as :not_json" do
+    a = cap(200, "<html></html>", [{"content-type", "text/html"}])
+    b = cap(200, "<html></html>", [{"content-type", "text/html"}])
+    assert {:diff, %{reason: :not_json}} = Comparator.compare(:json, a, b)
+  end
+
+  test ":json still flags a JSON content-type with an undecodable body as :decode_error" do
+    a = cap(200, "not json", [{"content-type", "application/json"}])
+    b = cap(200, "also not", [{"content-type", "application/json"}])
+    assert {:diff, %{reason: :decode_error}} = Comparator.compare(:json, a, b)
+  end
+
+  test ":json ignore drops fields recursively through nested maps and lists" do
+    a = cap(200, ~s({"user":{"id":1,"name":"x"},"items":[{"id":9,"v":1}]}))
+    b = cap(200, ~s({"user":{"id":2,"name":"x"},"items":[{"id":8,"v":1}]}))
+    assert Comparator.compare({:json, ignore: ["id"]}, a, b) == :match
+  end
+
+  test ":exact ignores caller-specified headers on top of the defaults" do
+    a = cap(200, "x", [{"content-type", "text/plain"}, {"x-trace", "abc"}])
+    b = cap(200, "x", [{"content-type", "text/plain"}, {"x-trace", "xyz"}])
+    assert {:diff, %{reason: :headers}} = Comparator.compare(:exact, a, b)
+    assert Comparator.compare({:exact, ignore_headers: ["x-trace"]}, a, b) == :match
+  end
+
+  test ":exact ignores timing headers by default" do
+    a =
+      cap(200, "x", [
+        {"content-type", "text/plain"},
+        {"x-runtime", "0.01"},
+        {"server-timing", "db;dur=1"}
+      ])
+
+    b =
+      cap(200, "x", [
+        {"content-type", "text/plain"},
+        {"x-runtime", "0.99"},
+        {"server-timing", "db;dur=9"}
+      ])
+
+    assert Comparator.compare(:exact, a, b) == :match
+  end
 end

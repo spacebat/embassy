@@ -10,7 +10,7 @@ defmodule Embassy.DualRoute.Comparator do
 
   alias Embassy.DualRoute.Captured
 
-  @default_volatile_headers ~w(date set-cookie x-request-id etag age)
+  @default_volatile_headers ~w(date set-cookie x-request-id etag age x-runtime server-timing)
 
   @type spec ::
           :status_only
@@ -32,13 +32,17 @@ defmodule Embassy.DualRoute.Comparator do
     ignore = Keyword.get(opts, :ignore, [])
 
     status_match(control, candidate, fn ->
-      with {:ok, a} <- decode_json(control.body),
-           {:ok, b} <- decode_json(candidate.body) do
-        a = drop_fields(a, ignore)
-        b = drop_fields(b, ignore)
-        if a == b, do: :match, else: {:diff, %{reason: :json_body, control: a, candidate: b}}
+      if json_content_type?(control) and json_content_type?(candidate) do
+        with {:ok, a} <- decode_json(control.body),
+             {:ok, b} <- decode_json(candidate.body) do
+          a = drop_fields(a, ignore)
+          b = drop_fields(b, ignore)
+          if a == b, do: :match, else: {:diff, %{reason: :json_body, control: a, candidate: b}}
+        else
+          :error -> {:diff, %{reason: :decode_error}}
+        end
       else
-        :error -> {:diff, %{reason: :decode_error}}
+        {:diff, %{reason: :not_json}}
       end
     end)
   end
@@ -77,6 +81,13 @@ defmodule Embassy.DualRoute.Comparator do
 
   defp status_match(control, candidate, _on_match),
     do: {:diff, %{reason: :status, control: control.status, candidate: candidate.status}}
+
+  defp json_content_type?(%{headers: headers}) do
+    case List.keyfind(headers, "content-type", 0) do
+      {"content-type", value} -> value |> String.downcase() |> String.contains?("json")
+      _ -> false
+    end
+  end
 
   defp decode_json(body) do
     case Jason.decode(body) do

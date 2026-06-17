@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (no unreleased changes)
 
+## [0.3.0] - 2026-06-18
+
+### Added
+
+- `Embassy.DualRoute`, a Scientist-style strangler-fig plug. Returns one
+  backend's response (the `canonical` side) while running the other as an
+  async shadow under a per-instance `Task.Supervisor`, compares them with
+  a named or custom comparator (`:status_only`, `:json`, `:html`,
+  `:exact`), and reports via `[:embassy, :dual_route, :match | :diff |
+  :error]` telemetry and an optional `Embassy.DualRoute.Reporter`. Both
+  sides are uniform target specs: `{:proxy, transport: ...}` or
+  `{:plug, Module, opts}`.
+- `Embassy.Proxy`, shared HTTP-forwarding helpers extracted from
+  `Embassy.ReverseProxy`.
+- Each `Embassy` instance now starts a `Task.Supervisor` (surfaced on the
+  config snapshot as `task_supervisor`).
+
 ## [0.2.0] - 2026-06-16
 
 ### Added

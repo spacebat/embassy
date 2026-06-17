@@ -132,6 +132,31 @@ wins) against the client's offer; `instance` tags rejection telemetry.
 Non-upgrade requests and unmatched subprotocols get a `426` plus an
 `[:embassy, :upgrade, :rejected]` event.
 
+## Strangler-fig migration with DualRoute
+
+`Embassy.DualRoute` runs two backends for the same route - a `control`
+and a `candidate` - returns one (the `canonical` side) to the client, and
+runs the other as an asynchronous shadow it compares against. Use it to
+migrate a route from a legacy backend to a native handler with zero
+user-facing latency cost and a measurable diff rate.
+
+```elixir
+# router.ex
+forward "/posts", Embassy.DualRoute,
+  embassy: MyApp.Embassy,
+  control:   {:proxy, transport: {:uds, "/tmp/puma.sock"}},
+  candidate: {:plug, MyAppWeb.PostsController, []},
+  canonical: :control,             # legacy wins; candidate shadows
+  comparator: :json                # :status_only | :json | :html | :exact | fn/2
+```
+
+Start with `canonical: :control`. Watch `[:embassy, :dual_route, :diff]`
+telemetry; when the diff rate hits zero, flip to `canonical: :candidate`
+(the new handler now serves, the proxy shadows), then retire the dual
+route. `methods` defaults to `["GET"]` for side-effect safety;
+`sample_rate` (0.0..1.0) throttles shadow volume; a `reporter` module
+implementing `Embassy.DualRoute.Reporter` can persist diffs.
+
 ## Augmentation
 
 Embassy doesn't introduce hook abstractions — `Plug` already has them:

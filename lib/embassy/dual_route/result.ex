@@ -2,6 +2,11 @@ defmodule Embassy.DualRoute.Result do
   @moduledoc """
   The outcome of one DualRoute experiment, passed to telemetry metadata
   and to a `Embassy.DualRoute.Reporter`.
+
+  `control_duration` and `candidate_duration` are in `:native` time
+  units (the same units `[:embassy, :dual_route, :match | :diff]`
+  telemetry reports); convert with
+  `System.convert_time_unit(duration, :native, :microsecond)`.
   """
 
   alias Embassy.DualRoute.Captured

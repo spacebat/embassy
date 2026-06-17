@@ -62,11 +62,188 @@ defmodule Embassy.DualRoute do
   end
 
   defp run_experiment(conn, body, snapshot, opts) do
-    {conn, _canonical_captured} =
+    canonical_start = System.monotonic_time()
+
+    {conn, canonical_captured} =
       Target.run_canonical(canonical_target(opts), conn, body, snapshot)
 
-    # Shadow pipeline added in Task 8.
+    canonical_duration = System.monotonic_time() - canonical_start
+
+    request = capture_request(conn, body)
+
+    Task.Supervisor.start_child(snapshot.task_supervisor, fn ->
+      run_shadow(request, canonical_captured, canonical_duration, snapshot, opts)
+    end)
+
     conn
+  end
+
+  # The shadow task receives a minimal copy of the request (no live
+  # adapter), so it can rebuild a conn for a plug target or a Finch
+  # request for a proxy target without touching the original socket.
+  defp capture_request(conn, body) do
+    %{
+      method: conn.method,
+      request_path: conn.request_path,
+      query_string: conn.query_string,
+      req_headers: conn.req_headers,
+      scheme: conn.scheme,
+      host: conn.host,
+      port: conn.port,
+      remote_ip: conn.remote_ip,
+      body: body
+    }
+  end
+
+  defp run_shadow(request, canonical_captured, canonical_duration, snapshot, opts) do
+    shadow_conn = rebuild_conn(request)
+
+    case run_with_timeout(
+           fn -> Target.run(shadow_target(opts), shadow_conn, request.body, snapshot) end,
+           snapshot,
+           opts
+         ) do
+      {:ok, shadow_captured, shadow_duration} ->
+        compare_and_report(
+          canonical_captured,
+          canonical_duration,
+          shadow_captured,
+          shadow_duration,
+          request,
+          opts
+        )
+
+      {:error, reason} ->
+        emit_error(request, opts, reason)
+    end
+  rescue
+    e -> emit_error(request, opts, {:exception, e})
+  catch
+    kind, reason -> emit_error(request, opts, {kind, reason})
+  end
+
+  defp shadow_target(%{canonical: :candidate} = opts), do: opts.control
+  defp shadow_target(opts), do: opts.candidate
+
+  defp run_with_timeout(fun, snapshot, opts) do
+    task = Task.Supervisor.async_nolink(snapshot.task_supervisor, fun)
+    start = System.monotonic_time()
+
+    case Task.yield(task, opts.shadow_timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, captured}} -> {:ok, captured, System.monotonic_time() - start}
+      {:ok, {:error, reason}} -> {:error, {:target_error, reason}}
+      {:exit, reason} -> {:error, {:shadow_exit, reason}}
+      nil -> {:error, :shadow_timeout}
+    end
+  end
+
+  # `adapter` is a deliberate placeholder, never invoked: for a plug
+  # target `Target.run/4` swaps in `CaptureAdapter` before calling the
+  # plug, and for a proxy target only the request fields are read to
+  # build the Finch request. Keep it that way - touching the adapter
+  # here before the swap would surface inside the shadow as an :error.
+  defp rebuild_conn(request) do
+    %Plug.Conn{
+      method: request.method,
+      request_path: request.request_path,
+      path_info: split_path(request.request_path),
+      query_string: request.query_string,
+      req_headers: request.req_headers,
+      scheme: request.scheme,
+      host: request.host,
+      port: request.port,
+      remote_ip: request.remote_ip,
+      adapter: {Plug.MissingAdapter, nil},
+      owner: self()
+    }
+  end
+
+  defp split_path(path) do
+    path |> String.split("/", trim: true)
+  end
+
+  defp compare_and_report(
+         canonical_captured,
+         canonical_duration,
+         shadow_captured,
+         shadow_duration,
+         request,
+         opts
+       ) do
+    {control, candidate, control_duration, candidate_duration} =
+      orient(
+        opts.canonical,
+        canonical_captured,
+        canonical_duration,
+        shadow_captured,
+        shadow_duration
+      )
+
+    verdict_detail = Embassy.DualRoute.Comparator.compare(opts.comparator, control, candidate)
+    {verdict, diff} = split_verdict(verdict_detail)
+
+    result = %Embassy.DualRoute.Result{
+      route: request.request_path,
+      method: request.method,
+      verdict: verdict,
+      comparator: opts.comparator,
+      canonical: opts.canonical,
+      control: control,
+      candidate: candidate,
+      diff: diff,
+      control_duration: control_duration,
+      candidate_duration: candidate_duration,
+      sampled?: true
+    }
+
+    :telemetry.execute(
+      [:embassy, :dual_route, verdict],
+      %{control_duration: control_duration, candidate_duration: candidate_duration},
+      %{
+        instance: opts.embassy,
+        route: result.route,
+        method: result.method,
+        canonical: opts.canonical,
+        comparator: opts.comparator,
+        status: {control.status, candidate.status},
+        diff: diff
+      }
+    )
+
+    run_reporter(result, opts)
+  end
+
+  defp orient(:control, canon, canon_dur, shadow, shadow_dur),
+    do: {canon, shadow, canon_dur, shadow_dur}
+
+  defp orient(:candidate, canon, canon_dur, shadow, shadow_dur),
+    do: {shadow, canon, shadow_dur, canon_dur}
+
+  defp split_verdict(:match), do: {:match, nil}
+  defp split_verdict({:diff, detail}), do: {:diff, detail}
+
+  defp run_reporter(_result, %{reporter: nil}), do: :ok
+
+  defp run_reporter(result, %{reporter: reporter} = opts) do
+    reporter.report(result)
+  rescue
+    e ->
+      emit_error(%{method: result.method, request_path: result.route}, opts, {:reporter_error, e})
+  end
+
+  defp emit_error(request, opts, reason) do
+    :telemetry.execute(
+      [:embassy, :dual_route, :error],
+      %{monotonic_time: System.monotonic_time()},
+      %{
+        instance: opts.embassy,
+        route: Map.get(request, :request_path),
+        method: Map.get(request, :method),
+        reason: reason
+      }
+    )
+
+    :ok
   end
 
   defp canonical_target(%{canonical: :candidate} = opts), do: opts.candidate

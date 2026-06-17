@@ -41,4 +41,16 @@ defmodule EmbassyTest do
     assert Process.whereis(EmbassyTest.A)
     assert Process.whereis(EmbassyTest.B)
   end
+
+  test "starts a per-instance Task.Supervisor and exposes it on the snapshot" do
+    name = :"embassy_test_#{System.unique_integer([:positive])}"
+    start_supervised!({Embassy, name: name, finch: :test_finch})
+
+    task_sup = Module.concat(name, TaskSupervisor)
+    assert is_pid(Process.whereis(task_sup))
+
+    snapshot = Embassy.Config.snapshot(name)
+    assert snapshot.finch == :test_finch
+    assert snapshot.task_supervisor == task_sup
+  end
 end

@@ -11,7 +11,7 @@ defmodule Embassy.Config do
   Internal snapshot shape. Fields may be added without breaking
   consumers; treat the map as opaque and use the public accessors.
   """
-  @opaque snapshot :: %{name: atom(), finch: atom()}
+  @opaque snapshot :: %{name: atom(), finch: atom(), task_supervisor: atom()}
 
   @doc """
   Return the config snapshot for the named Embassy instance.

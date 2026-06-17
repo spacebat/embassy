@@ -57,15 +57,20 @@ defmodule Embassy do
   @doc false
   def registry_name(name), do: Module.concat(name, Registry)
 
+  @doc false
+  def task_supervisor_name(name), do: Module.concat(name, TaskSupervisor)
+
   @impl true
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
     finch = Keyword.fetch!(opts, :finch)
+    task_supervisor = task_supervisor_name(name)
 
-    snapshot = %{name: name, finch: finch}
+    snapshot = %{name: name, finch: finch, task_supervisor: task_supervisor}
 
     children = [
-      {Registry, keys: :unique, name: registry_name(name), meta: [config: snapshot]}
+      {Registry, keys: :unique, name: registry_name(name), meta: [config: snapshot]},
+      {Task.Supervisor, name: task_supervisor}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

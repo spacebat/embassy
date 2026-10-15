@@ -18,7 +18,7 @@ session ran out of room before doing the extraction.
 
 ## The family in one paragraph
 
-- `emissary` (already published at `0.4.0`, lives in `../emissary`) —
+- `attache` (already published at `0.4.0`, lives in `../attache`) —
   subprocess supervision under OTP. Stays as-is; embassy does **not**
   depend on it.
 - `embassy` (this repo) — runtime-agnostic front-door: reverse proxy,
@@ -29,7 +29,7 @@ session ran out of room before doing the extraction.
   `Cable.Connection` `Phoenix.Socket.Transport`, the HTTP RPC client
   bound to AnyCable's `/_anycable/*` paths, the `/_broadcast` plug.
 - `embassy_example` (renamed from `emissary_example`) — the demo. Wires
-  embassy + embassy_rails + emissary together to show what an
+  embassy + embassy_rails + attache together to show what an
   end-to-end deployment looks like. Owns the design doc.
 - `ambassador` (future) — autoscaler control plane with K8s RBAC. Out
   of scope.
@@ -57,10 +57,10 @@ Also read:
   module sort
 - `CLAUDE.md` (this directory) — project conventions, the
   library-vs-application distinction, the composition story with
-  emissary
+  attache
 - `ECOSYSTEM.md` — speculative add-on packages (ratelimit, auth,
   resilience, etc.); informational, not committed work
-- `../emissary/CLAUDE.md` and `../emissary/SUBPROCESS_PACKAGE.md` —
+- `../attache/CLAUDE.md` and `../attache/SUBPROCESS_PACKAGE.md` —
   context on the sibling subprocess package
 
 ## What embassy is (the runtime-agnostic core)
@@ -85,7 +85,7 @@ A Phoenix-compatible library that provides:
 
 Embassy ships **no** subprocess supervisor. When you want to run Rails
 on the same node as Phoenix, you wire embassy's UDS target to an
-emissary-supervised Puma. The libraries compose at the consumer level;
+attache-supervised Puma. The libraries compose at the consumer level;
 they don't depend on each other.
 
 ## What embassy_rails is (the AnyCable adapter)
@@ -288,7 +288,7 @@ end
 
 No `:phoenix` dep — the WS upgrade primitive uses `:websock_adapter`
 directly, and the proxy is a plain Plug. No `:phoenix_pubsub` — that
-lives in `embassy_rails` (where broadcasts happen). No emissary dep.
+lives in `embassy_rails` (where broadcasts happen). No attache dep.
 No dialyxir.
 
 ### `embassy_rails/mix.exs` (sketch, for reference only)
@@ -370,7 +370,7 @@ migration plan once embassy itself is in shape.
 
 ## Constraints from the project
 
-From `CLAUDE.md`, `../emissary/CLAUDE.md`, and the user's stated
+From `CLAUDE.md`, `../attache/CLAUDE.md`, and the user's stated
 preferences:
 
 - This is a **library, not an application** — see `CLAUDE.md` for the
@@ -386,7 +386,7 @@ preferences:
 - No emojis in code, comments, or commit messages.
 - The user controls when commits happen — propose, don't execute,
   unless explicitly asked to commit.
-- **Don't add `{:emissary, ...}` to `mix.exs`.** Embassy and emissary
+- **Don't add `{:attache, ...}` to `mix.exs`.** Embassy and attache
   are independent peers that compose only at the consumer level.
 
 ## Open questions to settle when you start

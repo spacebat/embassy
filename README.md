@@ -169,9 +169,9 @@ Embassy doesn't introduce hook abstractions — `Plug` already has them:
 - **Observation:** attach a `:telemetry` handler for
   `[:embassy, :proxy, :*]`.
 
-## Composition with `emissary`
+## Composition with `attache`
 
-Embassy and `emissary` are independent libraries that compose at the
+Embassy and `attache` are independent libraries that compose at the
 consumer level. For a single-node Rails-behind-Phoenix deploy:
 
 ```elixir

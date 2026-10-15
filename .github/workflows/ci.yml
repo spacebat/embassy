@@ -42,6 +42,10 @@ jobs:
           key: mix-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
           restore-keys: mix-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-
 
+      # The installer tests build a throwaway Phoenix app via Igniter, which
+      # needs the phx_new archive (Phx.New.Generator) on the runner.
+      - run: mix archive.install hex phx_new --force
+
       - run: mix deps.get
 
       - if: matrix.full

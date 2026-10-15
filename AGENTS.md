@@ -20,13 +20,20 @@ None of them depends on another.
 - **`embassy_rails`** — Rails / ActionCable / AnyCable-specific
   adapter. Planned sibling package; see `RUNTIME_SPLIT.md` for why
   the split happens at extraction time, not after.
-- **`ambassador`** (future) — autoscaler control plane with K8s RBAC.
-  Out of scope for now.
+- **`ambassador`** — was planned as an autoscaler control plane with
+  K8s RBAC; judged likely unnecessary (2026-10-15). In Kubernetes the
+  Rails, anycable-rpc and sidekiq Deployments are already supervised
+  and scaled by k8s itself. Embassy just points at their Service URLs
+  and exports the signals k8s can't see (metrics for HPA/KEDA,
+  readiness, graceful WS drain) — see `TODO.md` here and in
+  `embassy_rails`. Don't create it without a decision k8s tooling can't
+  express.
 
 The naming arc: **attache** is the messenger (carries the subprocess),
-**embassy** is the building that hosts them (Phoenix as front-of-house),
-**ambassador** is the senior diplomat with authority (cluster-write
-RBAC). The metaphor does real work — keep it consistent.
+**embassy** is the building that hosts them (Phoenix as front-of-house).
+**ambassador** — the senior diplomat with authority (cluster-write
+RBAC) — is reserved, unbuilt. The metaphor does real work — keep it
+consistent.
 
 ## How embassy and attache compose
 

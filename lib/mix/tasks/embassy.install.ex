@@ -205,19 +205,21 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       # has_plug_parsers?/2 already confirmed the module is findable with a
       # do-block, so find_and_update_module/3 cannot return {:error, _} here.
       {:ok, igniter} =
-        Igniter.Project.Module.find_and_update_module(igniter, endpoint, fn zipper ->
-          with {:ok, zipper} <- move_to_parsers(zipper),
-               {:ok, zipper} <- Igniter.Code.Function.move_to_nth_argument(zipper, 1) do
-            Igniter.Code.Keyword.set_keyword_key(
-              zipper,
-              :body_reader,
-              Sourceror.parse_string!(@body_reader),
-              fn z -> {:ok, z} end
-            )
-          end
-        end)
+        Igniter.Project.Module.find_and_update_module(igniter, endpoint, &put_body_reader/1)
 
       igniter
+    end
+
+    defp put_body_reader(zipper) do
+      with {:ok, zipper} <- move_to_parsers(zipper),
+           {:ok, zipper} <- Igniter.Code.Function.move_to_nth_argument(zipper, 1) do
+        Igniter.Code.Keyword.set_keyword_key(
+          zipper,
+          :body_reader,
+          Sourceror.parse_string!(@body_reader),
+          fn z -> {:ok, z} end
+        )
+      end
     end
 
     defp move_to_parsers(zipper) do

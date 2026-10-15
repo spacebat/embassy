@@ -60,23 +60,21 @@ defmodule Embassy.Upgrade do
 
   @impl Plug
   def call(conn, %{} = opts) do
-    cond do
-      not websocket_upgrade?(conn) ->
-        reject(conn, opts.instance, :not_an_upgrade, [])
+    if websocket_upgrade?(conn) do
+      requested = requested_subprotocols(conn)
 
-      true ->
-        requested = requested_subprotocols(conn)
+      case Enum.find(opts.subprotocols, &(&1 in requested)) do
+        nil ->
+          reject(conn, opts.instance, :no_subprotocol, requested)
 
-        case Enum.find(opts.subprotocols, &(&1 in requested)) do
-          nil ->
-            reject(conn, opts.instance, :no_subprotocol, requested)
-
-          chosen ->
-            conn
-            |> put_resp_header("sec-websocket-protocol", chosen)
-            |> WebSockAdapter.upgrade(opts.handler, opts.init_arg, timeout: opts.timeout)
-            |> halt()
-        end
+        chosen ->
+          conn
+          |> put_resp_header("sec-websocket-protocol", chosen)
+          |> WebSockAdapter.upgrade(opts.handler, opts.init_arg, timeout: opts.timeout)
+          |> halt()
+      end
+    else
+      reject(conn, opts.instance, :not_an_upgrade, [])
     end
   end
 

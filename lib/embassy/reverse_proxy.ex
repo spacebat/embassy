@@ -180,6 +180,8 @@ defmodule Embassy.ReverseProxy do
 
   defp read_request_body(conn, max), do: Proxy.read_request_body(conn, max)
 
+  # Relaying the upstream body verbatim is the proxy's job, not an XSS sink.
+  # sobelow_skip ["XSS.SendResp"]
   defp copy_response(conn, %Finch.Response{status: status, headers: headers, body: body}) do
     conn
     |> merge_response_headers(headers)

@@ -88,6 +88,8 @@ defmodule Embassy.DualRoute.Target do
     end
   end
 
+  # Replays a captured upstream response verbatim, as the proxy does.
+  # sobelow_skip ["XSS.SendResp"]
   defp commit(conn, %Captured{status: status, headers: headers, body: body}) do
     conn =
       Enum.reduce(headers, conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)

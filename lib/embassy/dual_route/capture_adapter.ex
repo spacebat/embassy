@@ -71,6 +71,8 @@ defmodule Embassy.DualRoute.CaptureAdapter do
     {:ok, body, %{payload | status: status, headers: headers, body: body}}
   end
 
+  # `path` comes from the app's own `send_file/3` call, not from the request.
+  # sobelow_skip ["Traversal.FileModule"]
   @impl Plug.Conn.Adapter
   def send_file(payload, status, headers, path, offset, length) do
     %File.Stat{type: :regular, size: size} = File.stat!(path)

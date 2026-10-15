@@ -33,14 +33,7 @@ defmodule Embassy.DualRoute.Comparator do
 
     status_match(control, candidate, fn ->
       if json_content_type?(control) and json_content_type?(candidate) do
-        with {:ok, a} <- decode_json(control.body),
-             {:ok, b} <- decode_json(candidate.body) do
-          a = drop_fields(a, ignore)
-          b = drop_fields(b, ignore)
-          if a == b, do: :match, else: {:diff, %{reason: :json_body, control: a, candidate: b}}
-        else
-          :error -> {:diff, %{reason: :decode_error}}
-        end
+        compare_json_bodies(control.body, candidate.body, ignore)
       else
         {:diff, %{reason: :not_json}}
       end
@@ -70,6 +63,17 @@ defmodule Embassy.DualRoute.Comparator do
         true -> :match
       end
     end)
+  end
+
+  defp compare_json_bodies(control_body, candidate_body, ignore) do
+    with {:ok, a} <- decode_json(control_body),
+         {:ok, b} <- decode_json(candidate_body) do
+      a = drop_fields(a, ignore)
+      b = drop_fields(b, ignore)
+      if a == b, do: :match, else: {:diff, %{reason: :json_body, control: a, candidate: b}}
+    else
+      :error -> {:diff, %{reason: :decode_error}}
+    end
   end
 
   # Run `on_match` only when statuses match; otherwise report a status diff.

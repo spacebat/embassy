@@ -34,6 +34,7 @@ defmodule Embassy do
   def start_link(opts) do
     name = fetch_required!(opts, :name)
     _finch = fetch_required!(opts, :finch)
+    opts |> Keyword.get(:upstreams, []) |> validate_upstreams!()
     Supervisor.start_link(__MODULE__, opts, name: name)
   end
 
@@ -60,21 +61,56 @@ defmodule Embassy do
   @doc false
   def task_supervisor_name(name), do: Module.concat(name, TaskSupervisor)
 
+  @doc false
+  def health_monitor_name(name), do: Module.concat(name, HealthMonitor)
+
   @impl true
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
     finch = Keyword.fetch!(opts, :finch)
     task_supervisor = task_supervisor_name(name)
 
-    snapshot = %{name: name, finch: finch, task_supervisor: task_supervisor}
+    upstreams = Keyword.get(opts, :upstreams, [])
 
-    children = [
-      {Registry, keys: :unique, name: registry_name(name), meta: [config: snapshot]},
-      {Task.Supervisor, name: task_supervisor}
-    ]
+    snapshot = %{
+      name: name,
+      finch: finch,
+      task_supervisor: task_supervisor,
+      upstreams: upstreams,
+      health: health_opts(Keyword.get(opts, :health, []))
+    }
+
+    children =
+      [
+        {Registry, keys: :unique, name: registry_name(name), meta: [config: snapshot]},
+        {Task.Supervisor, name: task_supervisor}
+      ] ++ health_monitor(snapshot)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
+
+  defp health_monitor(%{upstreams: []}), do: []
+  defp health_monitor(snapshot), do: [{Embassy.Health.Monitor, snapshot}]
+
+  # `:probe` is undocumented and exists for tests.
+  defp health_opts(opts) do
+    %{
+      interval: Keyword.get(opts, :interval, 5_000),
+      timeout: Keyword.get(opts, :timeout, 1_000),
+      probe: Keyword.get(opts, :probe, &Embassy.Health.check/3)
+    }
+  end
+
+  defp validate_upstreams!(upstreams) when is_list(upstreams) do
+    Enum.each(upstreams, fn
+      {name, {:uds, path}} when is_atom(name) and is_binary(path) -> :ok
+      {name, {:http, base}} when is_atom(name) and is_binary(base) -> :ok
+      other -> raise ArgumentError, "invalid :upstreams entry #{inspect(other)}"
+    end)
+  end
+
+  defp validate_upstreams!(other),
+    do: raise(ArgumentError, ":upstreams must be a keyword list, got #{inspect(other)}")
 
   defp fetch_required!(opts, key) do
     case Keyword.fetch(opts, key) do

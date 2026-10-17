@@ -1,0 +1,46 @@
+defmodule Embassy.HealthTest do
+  use ExUnit.Case, async: true
+
+  alias Embassy.Health
+
+  setup do
+    name = :"health_#{System.unique_integer([:positive])}"
+    start_supervised!({Finch, name: Module.concat(name, Finch)})
+    start_supervised!({Embassy, name: name, finch: Module.concat(name, Finch)})
+    %{embassy: name}
+  end
+
+  test "check/3 is :ok on any HTTP response", %{embassy: e} do
+    bypass = Bypass.open()
+    Bypass.expect_once(bypass, "HEAD", "/", &Plug.Conn.resp(&1, 503, ""))
+
+    assert :ok = Health.check(e, {:http, "http://localhost:#{bypass.port}"}, [])
+  end
+
+  test "check/3 errors when unreachable", %{embassy: e} do
+    assert {:error, _} = Health.check(e, {:http, "http://localhost:1"}, [])
+  end
+
+  test "check/3 errors on timeout", %{embassy: e} do
+    port = Embassy.Test.SilentServer.start()
+    assert {:error, _} = Health.check(e, {:http, "http://localhost:#{port}"}, timeout: 50)
+  end
+
+  test "check/3 probes a UDS upstream", %{embassy: e} do
+    assert {:error, _} = Health.check(e, {:uds, "/nonexistent/embassy.sock"}, [])
+  end
+
+  test "status/1 is %{} without upstreams", %{embassy: e} do
+    assert Health.status(e) == %{}
+  end
+
+  test "Embassy rejects a bad :upstreams entry" do
+    name = :"health_bad_#{System.unique_integer([:positive])}"
+
+    assert {:error, reason} =
+             start_supervised({Embassy, name: name, finch: :f, upstreams: [rails: :nope]})
+
+    assert inspect(reason) =~ "ArgumentError"
+    assert inspect(reason) =~ ":upstreams"
+  end
+end

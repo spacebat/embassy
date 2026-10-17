@@ -37,4 +37,24 @@ defmodule Embassy.ProxyTest do
 
     assert Proxy.response_headers(headers) == [{"content-type", "application/json"}]
   end
+
+  describe "route_label/2" do
+    test "route defaults to the mount point" do
+      conn = %{conn(:get, "/posts/1") | script_name: ["posts"], path_info: ["1"]}
+      assert Proxy.route_label(conn, nil) == "/posts"
+
+      conn = %{conn(:get, "/api/v1/x") | script_name: ["api", "v1"], path_info: ["x"]}
+      assert Proxy.route_label(conn, nil) == "/api/v1"
+    end
+
+    test "route defaults to \"/\" with empty script_name" do
+      assert Proxy.route_label(conn(:get, "/x"), nil) == "/"
+    end
+
+    test "explicit route wins" do
+      conn = %{conn(:get, "/posts/1") | script_name: ["posts"]}
+      assert Proxy.route_label(conn, :legacy) == "legacy"
+      assert Proxy.route_label(conn, "rails") == "rails"
+    end
+  end
 end

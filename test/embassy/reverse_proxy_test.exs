@@ -368,4 +368,52 @@ defmodule Embassy.ReverseProxyTest do
 
     _ = adapter_mod
   end
+
+  describe "route and role metadata" do
+    test "stop metadata carries route and role", %{bypass: bypass} do
+      {:ok, collector} =
+        TelemetryCollector.attach([[:embassy, :proxy, :start], [:embassy, :proxy, :stop]])
+
+      Bypass.expect_once(bypass, "GET", "/foo", &Plug.Conn.resp(&1, 200, "ok"))
+
+      opts =
+        Embassy.ReverseProxy.init(
+          embassy: ReverseProxyTest.Instance,
+          transport: {:http, "http://localhost:#{bypass.port}"},
+          route: :legacy
+        )
+
+      conn(:get, "/foo") |> Embassy.ReverseProxy.call(opts)
+
+      assert [
+               {[:embassy, :proxy, :start], _, start_meta},
+               {[:embassy, :proxy, :stop], _, stop_meta}
+             ] = TelemetryCollector.events(collector)
+
+      assert %{route: "legacy", role: :direct} = start_meta
+      assert %{route: "legacy", role: :direct, status: 200, request_path: "/foo"} = stop_meta
+    end
+
+    test "route defaults from script_name", %{bypass: bypass, opts: opts} do
+      {:ok, collector} = TelemetryCollector.attach([[:embassy, :proxy, :stop]])
+
+      Bypass.expect_once(bypass, "GET", "/posts/1", &Plug.Conn.resp(&1, 200, "ok"))
+
+      %{conn(:get, "/posts/1") | script_name: ["posts"], path_info: ["1"]}
+      |> Embassy.ReverseProxy.call(opts)
+
+      assert [{_, _, meta}] = TelemetryCollector.events(collector)
+      assert meta.route == "/posts"
+    end
+
+    test "upstream error exception carries route and role", %{bypass: bypass, opts: opts} do
+      {:ok, collector} = TelemetryCollector.attach([[:embassy, :proxy, :exception]])
+
+      Bypass.down(bypass)
+      conn(:get, "/") |> Embassy.ReverseProxy.call(opts)
+
+      assert [{_, _, meta}] = TelemetryCollector.events(collector)
+      assert %{kind: :upstream_error, route: "/", role: :direct} = meta
+    end
+  end
 end

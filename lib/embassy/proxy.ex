@@ -4,8 +4,9 @@ defmodule Embassy.Proxy do
   `Embassy.ReverseProxy` and `Embassy.DualRoute`.
 
   Builds a `Finch.Request` from a `Plug.Conn` (UDS or HTTP transport),
-  reads the request body (honouring `Embassy.BodyCache`), and filters
-  hop-by-hop headers on responses.
+  reads the request body (honouring `Embassy.BodyCache`), filters
+  hop-by-hop headers on responses, and emits the shared
+  `[:embassy, :proxy, :start | :stop | :exception]` events.
   """
 
   import Plug.Conn, only: [read_body: 2]
@@ -66,6 +67,86 @@ defmodule Embassy.Proxy do
       down = String.downcase(name)
       if down in @hop_by_hop, do: [], else: [{down, value}]
     end)
+  end
+
+  @doc """
+  Low-cardinality route label for telemetry. An explicit `route` (atom or
+  string) wins; otherwise the mount point from `conn.script_name`, so
+  `forward "/posts", ...` gives `"/posts"` and an unmounted plug gives
+  `"/"`.
+  """
+  @spec route_label(Plug.Conn.t(), String.t() | atom() | nil) :: String.t()
+  def route_label(conn, nil), do: "/" <> Enum.join(conn.script_name, "/")
+  def route_label(_conn, route) when is_atom(route), do: Atom.to_string(route)
+  def route_label(_conn, route) when is_binary(route), do: route
+
+  @doc "Metadata shared by every `[:embassy, :proxy, *]` event."
+  @spec event_metadata(
+          Plug.Conn.t(),
+          atom(),
+          term(),
+          String.t(),
+          :direct | :canonical | :shadow
+        ) :: map()
+  def event_metadata(conn, instance, transport, route, role) do
+    %{
+      instance: instance,
+      method: conn.method,
+      request_path: conn.request_path,
+      transport: transport,
+      route: route,
+      role: role
+    }
+  end
+
+  @doc "Emit `[:embassy, :proxy, :start]` and return the start time."
+  @spec emit_start(map()) :: integer()
+  def emit_start(metadata) do
+    start_time = System.monotonic_time()
+    :telemetry.execute([:embassy, :proxy, :start], %{monotonic_time: start_time}, metadata)
+    start_time
+  end
+
+  @doc "Emit `[:embassy, :proxy, :exception]` with `kind` and any `extra` metadata."
+  @spec emit_exception(map(), integer(), atom(), map()) :: :ok
+  def emit_exception(metadata, start_time, kind, extra \\ %{}) do
+    now = System.monotonic_time()
+
+    :telemetry.execute(
+      [:embassy, :proxy, :exception],
+      %{monotonic_time: now, duration: now - start_time},
+      metadata |> Map.put(:kind, kind) |> Map.merge(extra)
+    )
+  end
+
+  @doc """
+  Send `req` through `finch`, emitting `:stop` on a response or an
+  `:exception` of kind `:upstream_error` (with `reason`) on failure.
+  """
+  @spec forward(Finch.Request.t(), binary(), atom(), map(), integer()) ::
+          {:ok, Finch.Response.t()} | {:error, term()}
+  def forward(req, body, finch, metadata, start_time) do
+    case Finch.request(req, finch) do
+      {:ok, %Finch.Response{} = resp} ->
+        now = System.monotonic_time()
+
+        :telemetry.execute(
+          [:embassy, :proxy, :stop],
+          %{
+            monotonic_time: now,
+            duration: now - start_time,
+            request_body_bytes: byte_size(body),
+            response_body_bytes: byte_size(resp.body)
+          },
+          Map.put(metadata, :status, resp.status)
+        )
+
+        {:ok, resp}
+
+      {:error, reason} ->
+        emit_exception(metadata, start_time, :upstream_error, %{reason: reason})
+        {:error, reason}
+    end
   end
 
   defp transport_to_url_and_opts(conn, {:uds, path}) do

@@ -27,7 +27,8 @@ defmodule Embassy.ReverseProxy do
     %{
       embassy: embassy,
       transport: transport,
-      max_body_length: max_body_length
+      max_body_length: max_body_length,
+      route: Keyword.get(opts, :route)
     }
   end
 
@@ -38,19 +39,13 @@ defmodule Embassy.ReverseProxy do
   end
 
   defp do_call(conn, snapshot, transport, opts) do
-    start_time = System.monotonic_time()
-
-    metadata = %{
-      instance: snapshot.name,
-      method: conn.method,
-      request_path: conn.request_path,
-      transport: transport
-    }
+    route = Proxy.route_label(conn, opts.route)
+    metadata = Proxy.event_metadata(conn, snapshot.name, transport, route, :direct)
 
     if websocket_upgrade?(conn) do
-      handle_unsupported_upgrade(conn, metadata, start_time)
+      handle_unsupported_upgrade(conn, metadata, System.monotonic_time())
     else
-      forward_request(conn, snapshot, transport, opts, metadata, start_time)
+      forward_request(conn, snapshot, transport, opts, metadata)
     end
   end
 
@@ -68,14 +63,7 @@ defmodule Embassy.ReverseProxy do
         "Use embassy_rails for ActionCable, or a future WS-forwarding release of embassy."
     )
 
-    :telemetry.execute(
-      [:embassy, :proxy, :exception],
-      %{
-        monotonic_time: System.monotonic_time(),
-        duration: System.monotonic_time() - start_time
-      },
-      Map.put(metadata, :kind, :unsupported_upgrade)
-    )
+    Proxy.emit_exception(metadata, start_time, :unsupported_upgrade)
 
     conn
     |> put_resp_content_type("text/plain")
@@ -85,12 +73,8 @@ defmodule Embassy.ReverseProxy do
     )
   end
 
-  defp forward_request(conn, snapshot, transport, opts, metadata, start_time) do
-    :telemetry.execute(
-      [:embassy, :proxy, :start],
-      %{monotonic_time: start_time},
-      metadata
-    )
+  defp forward_request(conn, snapshot, transport, opts, metadata) do
+    start_time = Proxy.emit_start(metadata)
 
     case read_request_body(conn, opts.max_body_length) do
       {:halt_too_large, conn} ->
@@ -107,14 +91,7 @@ defmodule Embassy.ReverseProxy do
   defp handle_body_too_large(conn, metadata, start_time, limit) do
     Logger.warning("Embassy.ReverseProxy: request body exceeded max_body_length=#{limit}")
 
-    :telemetry.execute(
-      [:embassy, :proxy, :exception],
-      %{
-        monotonic_time: System.monotonic_time(),
-        duration: System.monotonic_time() - start_time
-      },
-      Map.put(metadata, :kind, :body_too_large)
-    )
+    Proxy.emit_exception(metadata, start_time, :body_too_large)
 
     conn
     |> put_resp_content_type("text/plain")
@@ -124,14 +101,7 @@ defmodule Embassy.ReverseProxy do
   defp handle_body_read_error(conn, metadata, start_time, reason) do
     Logger.warning("Embassy.ReverseProxy: failed to read request body reason=#{inspect(reason)}")
 
-    :telemetry.execute(
-      [:embassy, :proxy, :exception],
-      %{
-        monotonic_time: System.monotonic_time(),
-        duration: System.monotonic_time() - start_time
-      },
-      Map.merge(metadata, %{kind: :body_read_error, reason: reason})
-    )
+    Proxy.emit_exception(metadata, start_time, :body_read_error, %{reason: reason})
 
     conn
     |> put_resp_content_type("text/plain")
@@ -141,35 +111,13 @@ defmodule Embassy.ReverseProxy do
   defp dispatch_upstream(conn, snapshot, transport, body, metadata, start_time) do
     req = Proxy.build_request(conn, body, transport)
 
-    case Finch.request(req, snapshot.finch) do
-      {:ok, %Finch.Response{} = resp} ->
-        conn = copy_response(conn, resp)
-
-        :telemetry.execute(
-          [:embassy, :proxy, :stop],
-          %{
-            monotonic_time: System.monotonic_time(),
-            duration: System.monotonic_time() - start_time,
-            request_body_bytes: byte_size(body),
-            response_body_bytes: byte_size(resp.body)
-          },
-          Map.put(metadata, :status, resp.status)
-        )
-
-        conn
+    case Proxy.forward(req, body, snapshot.finch, metadata, start_time) do
+      {:ok, resp} ->
+        copy_response(conn, resp)
 
       {:error, reason} ->
         Logger.error(
           "Embassy.ReverseProxy: upstream error transport=#{inspect(transport)} reason=#{inspect(reason)}"
-        )
-
-        :telemetry.execute(
-          [:embassy, :proxy, :exception],
-          %{
-            monotonic_time: System.monotonic_time(),
-            duration: System.monotonic_time() - start_time
-          },
-          Map.merge(metadata, %{kind: :upstream_error, reason: reason})
         )
 
         conn

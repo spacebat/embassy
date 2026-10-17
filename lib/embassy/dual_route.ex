@@ -16,7 +16,9 @@ defmodule Embassy.DualRoute do
   `:shadow_timeout` in ms (default `5_000`), `:reporter`,
   `:max_body_length` (default `50_000_000`), and `:route`, the telemetry
   route label (string or atom; defaults to the mount point from
-  `conn.script_name`).
+  `conn.script_name`). Set `:route` when mounting with `get`/`post`
+  rather than `forward`: without a mount point every such route is
+  labelled `"/"`. Also set it under a dynamic `Plug.Router` `forward`.
 
   ## Telemetry
 

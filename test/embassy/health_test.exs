@@ -43,4 +43,18 @@ defmodule Embassy.HealthTest do
     assert inspect(reason) =~ "ArgumentError"
     assert inspect(reason) =~ ":upstreams"
   end
+
+  test "Embassy rejects a non-positive :health interval or timeout" do
+    for health <- [[interval: 0], [timeout: -1], [interval: "5s"]] do
+      name = :"health_bad_#{System.unique_integer([:positive])}"
+
+      assert {:error, reason} =
+               start_supervised(
+                 {Embassy,
+                  name: name, finch: :f, upstreams: [rails: {:http, "x"}], health: health}
+               )
+
+      assert inspect(reason) =~ ":health"
+    end
+  end
 end

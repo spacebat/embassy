@@ -127,4 +127,20 @@ defmodule Embassy.Health.MonitorTest do
       assert Process.alive?(Process.whereis(Embassy.health_monitor_name(e)))
     end)
   end
+
+  test "a probe that outlives the timeout is killed and marked down" do
+    capture_log(fn ->
+      e =
+        start_instance([rails: {:http, "http://localhost:1"}],
+          interval: 50,
+          timeout: 100,
+          probe: fn _, _, _ ->
+            Process.sleep(5_000)
+            :ok
+          end
+        )
+
+      wait_for(fn -> Health.status(e) == %{rails: {:down, :timeout}} end, 500)
+    end)
+  end
 end

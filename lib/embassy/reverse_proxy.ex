@@ -15,6 +15,8 @@ defmodule Embassy.ReverseProxy do
       `50_000_000`); larger bodies get a 413.
     * `:route` — telemetry route label (string or atom). Defaults to the
       mount point from `conn.script_name`, `"/"` when unmounted.
+      Set it explicitly under a `Plug.Router` `forward` with dynamic
+      segments, whose concrete values would otherwise become the label.
 
   ## Telemetry
 

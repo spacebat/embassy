@@ -5,7 +5,9 @@ defmodule Embassy.Health.Monitor do
 
   Probes run as tasks under the instance `Task.Supervisor`, so a hung
   upstream never blocks the monitor or `Embassy.Health.status/1`, and an
-  upstream whose probe is still running is not probed again.
+  upstream whose probe is still running is not probed again. A probe
+  still running after the `:timeout` is killed and recorded as
+  `{:down, :timeout}`; Finch's own timeouts don't cover connecting.
   """
 
   use GenServer
@@ -42,16 +44,26 @@ defmodule Embassy.Health.Monitor do
     {:noreply, record(state, ref, {:down, {:probe_exit, reason}})}
   end
 
+  def handle_info({:probe_deadline, ref}, %{in_flight: in_flight} = state)
+      when is_map_key(in_flight, ref) do
+    {_name, _start, pid} = Map.fetch!(in_flight, ref)
+    Process.demonitor(ref, [:flush])
+    Task.Supervisor.terminate_child(state.snapshot.task_supervisor, pid)
+    {:noreply, record(state, ref, {:down, :timeout})}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   defp tick(%{snapshot: snapshot} = state) do
-    busy = state.in_flight |> Map.values() |> MapSet.new(fn {name, _} -> name end)
+    busy = state.in_flight |> Map.values() |> MapSet.new(fn {name, _, _} -> name end)
 
     in_flight =
       snapshot.upstreams
       |> Enum.reject(fn {name, _} -> MapSet.member?(busy, name) end)
       |> Enum.reduce(state.in_flight, fn {name, transport}, acc ->
-        Map.put(acc, start_probe(snapshot, transport).ref, {name, System.monotonic_time()})
+        task = start_probe(snapshot, transport)
+        Process.send_after(self(), {:probe_deadline, task.ref}, snapshot.health.timeout)
+        Map.put(acc, task.ref, {name, System.monotonic_time(), task.pid})
       end)
 
     Process.send_after(self(), :tick, snapshot.health.interval)
@@ -70,7 +82,7 @@ defmodule Embassy.Health.Monitor do
   defp to_status({:error, reason}), do: {:down, reason}
 
   defp record(state, ref, new) do
-    {{name, start}, in_flight} = Map.pop!(state.in_flight, ref)
+    {{name, start, _pid}, in_flight} = Map.pop!(state.in_flight, ref)
     instance = state.snapshot.name
 
     :telemetry.execute(

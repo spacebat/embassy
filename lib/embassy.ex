@@ -46,6 +46,7 @@ defmodule Embassy do
     name = fetch_required!(opts, :name)
     _finch = fetch_required!(opts, :finch)
     opts |> Keyword.get(:upstreams, []) |> validate_upstreams!()
+    opts |> Keyword.get(:health, []) |> validate_health!()
     Supervisor.start_link(__MODULE__, opts, name: name)
   end
 
@@ -122,6 +123,24 @@ defmodule Embassy do
 
   defp validate_upstreams!(other),
     do: raise(ArgumentError, ":upstreams must be a keyword list, got #{inspect(other)}")
+
+  defp validate_health!(health) when is_list(health) do
+    for key <- [:interval, :timeout], Keyword.has_key?(health, key) do
+      case Keyword.fetch!(health, key) do
+        ms when is_integer(ms) and ms > 0 ->
+          :ok
+
+        other ->
+          raise ArgumentError,
+                ":health #{key} must be a positive integer (ms), got #{inspect(other)}"
+      end
+    end
+
+    :ok
+  end
+
+  defp validate_health!(other),
+    do: raise(ArgumentError, ":health must be a keyword list, got #{inspect(other)}")
 
   defp fetch_required!(opts, key) do
     case Keyword.fetch(opts, key) do

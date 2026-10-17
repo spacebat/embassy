@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   serves, with `canonical`, `served_by` (`:proxy | :plug`) and `sampled`.
 - `Embassy.Health`: opt-in per-instance upstream monitor (`:upstreams`
   and `:health` options on `Embassy`), `[:embassy, :upstream, :check]`
-  events, transition logging, `status/1` and `check/3`. Not a readiness
+  events, transition logging, `status/1` and `check/3`. A probe that
+  outlives `:timeout` is killed and recorded as down. Not a readiness
   check.
 - `Embassy.Telemetry.metrics/0`, `Telemetry.Metrics` definitions over
   embassy events, behind the optional `telemetry_metrics` dependency.

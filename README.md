@@ -194,6 +194,17 @@ string or atom). Without it the label is the mount point:
 `forward "/posts", ...` gives `"/posts"`, the catch-all `forward "/"`
 gives `"/"`.
 
+The default only works for a static `forward`, the one place Phoenix sets
+`conn.script_name`. Set `:route` yourself when:
+
+- **DualRoute is mounted with a verb macro** (`get "/posts/:id",
+  Embassy.DualRoute, ...`). There is no mount point, so every such
+  experiment would be labelled `"/"` and merge with the catch-all proxy.
+- **You use a `Plug.Router` `forward` with dynamic segments**
+  (`forward "/users/:id", ...`). Those segments land in `script_name` as
+  concrete values, so the default label would carry user IDs and explode
+  metric cardinality.
+
 Proxy events carry a `role`: `:direct` from `Embassy.ReverseProxy`,
 `:canonical` from a DualRoute proxy target whose response the client
 gets, `:shadow` from one run as the comparison shadow. Requests Rails

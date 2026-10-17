@@ -157,6 +157,124 @@ route. `methods` defaults to `["GET"]` for side-effect safety;
 `sample_rate` (0.0..1.0) throttles shadow volume; a `reporter` module
 implementing `Embassy.DualRoute.Reporter` can persist diffs.
 
+## Metrics and dashboards
+
+Embassy emits `:telemetry` events for every request it sends upstream,
+every DualRoute dispatch and verdict, rejected upgrades, and upstream
+health probes. `Embassy.Telemetry.metrics/0` turns them into
+`Telemetry.Metrics` definitions for your reporter. It needs the optional
+dependency:
+
+```elixir
+{:telemetry_metrics, "~> 1.0"}
+```
+
+```elixir
+# lib/my_app_web/telemetry.ex
+def metrics do
+  Embassy.Telemetry.metrics() ++
+    [
+      # Phoenix's generator reports router dispatch as a `summary`, which
+      # TelemetryMetricsPrometheus.Core drops. Add a counter for the
+      # Rails-share denominator below. Route patterns are bounded.
+      counter("phoenix.router_dispatch.stop.count", tags: [:route])
+      # ... your own metrics
+    ]
+end
+```
+
+Tags are low cardinality: `instance`, a route label, `role`, `status`,
+`kind`, `upstream`, and the DualRoute `canonical` / `served_by` /
+`sampled`. Never a request path or error reason.
+
+### Route labels
+
+`Embassy.ReverseProxy` and `Embassy.DualRoute` take a `:route` option (a
+string or atom). Without it the label is the mount point:
+`forward "/posts", ...` gives `"/posts"`, the catch-all `forward "/"`
+gives `"/"`.
+
+Proxy events carry a `role`: `:direct` from `Embassy.ReverseProxy`,
+`:canonical` from a DualRoute proxy target whose response the client
+gets, `:shadow` from one run as the comparison shadow. Requests Rails
+served for clients are the ones with `role != shadow`, whichever
+migration style you use.
+
+### PromQL
+
+Written for `TelemetryMetricsPrometheus.Core` name mangling (dots become
+underscores, distributions add `_bucket` / `_sum` / `_count`). Other
+reporters name things differently.
+
+Share of client requests still served by Rails, router-wide. Works for
+both router precedence (native routes first, catch-all proxy) and
+DualRoute. Exclude `/cable` and any health or metrics routes from the
+denominator:
+
+```promql
+sum(rate(embassy_proxy_duration_count{role!="shadow"}[5m]))
+/
+sum(rate(phoenix_router_dispatch_stop_count{route!~"/cable.*|/health.*|/metrics"}[5m]))
+```
+
+DualRoute routes, by who serves them (`proxy` is still Rails):
+
+```promql
+sum by (route, served_by) (rate(embassy_dual_route_dispatch_count[5m]))
+```
+
+p95 proxy latency by route (ms):
+
+```promql
+histogram_quantile(0.95,
+  sum by (route, le) (rate(embassy_proxy_duration_bucket{role!="shadow"}[5m])))
+```
+
+Upstream errors by kind:
+
+```promql
+sum by (kind) (rate(embassy_proxy_exception_count[5m]))
+```
+
+Upstream up (needs `:upstreams`, below):
+
+```promql
+embassy_upstream_up
+```
+
+DualRoute diff rate by route:
+
+```promql
+sum by (route) (rate(embassy_dual_route_diff_count[5m]))
+/
+(sum by (route) (rate(embassy_dual_route_diff_count[5m]))
+ + sum by (route) (rate(embassy_dual_route_match_count[5m])))
+```
+
+### Upstream health
+
+Give the instance its upstreams and it probes them:
+
+```elixir
+{Embassy,
+ name: MyApp.Embassy,
+ finch: MyApp.Finch,
+ upstreams: [rails: {:uds, "/tmp/puma.sock"}],
+ health: [interval: 5_000, timeout: 1_000]}
+```
+
+Each upstream gets `HEAD /` every `interval` ms. Any HTTP response is up;
+a connection error or timeout is down. Results go to the
+`embassy_upstream_up` gauge and `Embassy.Health.status(MyApp.Embassy)`
+(`%{rails: :up}`), and a transition logs once (a warning going down, an
+info line coming back).
+
+This is **not** a readiness check. Once some routes are served by
+Phoenix, a Rails outage should not take Phoenix pods out of the Service,
+so embassy never wires upstream health into readiness or liveness. If
+you want that anyway, call `Embassy.Health.status/1` from your own
+readiness endpoint.
+
 ## Augmentation
 
 Embassy doesn't introduce hook abstractions — `Plug` already has them:

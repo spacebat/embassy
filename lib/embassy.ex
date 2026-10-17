@@ -13,6 +13,17 @@ defmodule Embassy do
     * `:finch` — atom; the name of a running `Finch` instance owned by
       the consumer. Embassy never starts its own Finch.
 
+  ## Optional options
+
+    * `:upstreams` — keyword list of `name => transport`
+      (`{:uds, path}` or `{:http, base_url}`) to health-check. When
+      given, an `Embassy.Health.Monitor` is started for the instance.
+      Default `[]` (no monitor).
+    * `:health` — keyword list: `:interval` between probes in ms
+      (default `5_000`) and probe `:timeout` in ms (default `1_000`).
+
+  See `Embassy.Health`.
+
   ## Example
 
       children = [

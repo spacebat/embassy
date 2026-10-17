@@ -99,8 +99,8 @@ defmodule Embassy.DualRouteTest do
           [:embassy, :dual_route, :diff],
           [:embassy, :dual_route, :error]
         ],
-        fn event, meas, meta, pid -> send(pid, {:telemetry, event, meas, meta}) end,
-        self()
+        &__MODULE__.forward_own/4,
+        {self(), e}
       )
 
       on_exit(fn -> :telemetry.detach(handler) end)

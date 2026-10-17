@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(no unreleased changes)
+### Added
+
+- Route labels on proxy and DualRoute telemetry. `Embassy.ReverseProxy`
+  and `Embassy.DualRoute` take a `:route` option; without it the label is
+  the mount point from `conn.script_name` (`"/"` when unmounted).
+- `[:embassy, :proxy, *]` events now carry `route` and `role`
+  (`:direct`, `:canonical`, `:shadow`), and DualRoute proxy targets emit
+  them too, so proxied traffic is visible in both migration styles.
+- `[:embassy, :dual_route, :dispatch]`, once per request a DualRoute
+  serves, with `canonical`, `served_by` (`:proxy | :plug`) and `sampled`.
+- `Embassy.Health`: opt-in per-instance upstream monitor (`:upstreams`
+  and `:health` options on `Embassy`), `[:embassy, :upstream, :check]`
+  events, transition logging, `status/1` and `check/3`. Not a readiness
+  check.
+- `Embassy.Telemetry.metrics/0`, `Telemetry.Metrics` definitions over
+  embassy events, behind the optional `telemetry_metrics` dependency.
+- README "Metrics and dashboards" section with PromQL.
+
+### Changed
+
+- **Breaking:** DualRoute telemetry `route` and
+  `Embassy.DualRoute.Result.route` are now the route label; the request
+  path moved to a new `request_path` key, and `Result` requires it.
+- **Breaking:** `Embassy.DualRoute.Target.run/5` and `run_canonical/5`
+  take a fifth argument, a `%{route, role}` context (they were arity 4).
+- `Embassy.ReverseProxy` emits `:stop` once the upstream responds,
+  before the response is sent to the client.
 
 ## [0.3.0] - 2026-10-18
 

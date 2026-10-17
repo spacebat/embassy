@@ -4,9 +4,35 @@ defmodule Embassy.DualRoute do
   canonical side) while running the other as an asynchronous shadow,
   comparing them and reporting the result.
 
-  See the README "Strangler-fig migration with DualRoute" section and
-  the design spec for the full model. Both `control` and `candidate` are
-  target specs: `{:proxy, transport: ...}` or `{:plug, Module, opts}`.
+  See the README "Strangler-fig migration with DualRoute" section for the
+  full model. Both `control` and `candidate` are target specs:
+  `{:proxy, transport: ...}` or `{:plug, Module, opts}`.
+
+  ## Options
+
+  `:embassy`, `:control`, `:candidate` and `:comparator` are required.
+  `:canonical` (`:control` | `:candidate`, default `:control`),
+  `:methods` (default `["GET"]`), `:sample_rate` (default `1.0`),
+  `:shadow_timeout` in ms (default `5_000`), `:reporter`,
+  `:max_body_length` (default `50_000_000`), and `:route`, the telemetry
+  route label (string or atom; defaults to the mount point from
+  `conn.script_name`).
+
+  ## Telemetry
+
+    * `[:embassy, :dual_route, :dispatch]` — once per request served
+      (not on a 413/400 body rejection). `%{monotonic_time}`; metadata
+      `instance`, `route`, `method`, `canonical`, `served_by`
+      (`:proxy | :plug`, the canonical target's kind) and `sampled`.
+    * `[:embassy, :dual_route, :match | :diff]` — `%{control_duration,
+      candidate_duration}`; metadata `instance`, `route`, `request_path`,
+      `method`, `canonical`, `comparator`, `status`, `diff`.
+    * `[:embassy, :dual_route, :error]` — shadow or reporter failure;
+      metadata `instance`, `route`, `request_path`, `method`, `reason`.
+
+  `route` is the label; `request_path` is the concrete path. Proxy
+  targets also emit `[:embassy, :proxy, *]` events (see
+  `Embassy.ReverseProxy`) with `role: :canonical` or `role: :shadow`.
   """
 
   @behaviour Plug

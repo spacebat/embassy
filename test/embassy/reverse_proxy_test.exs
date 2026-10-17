@@ -43,7 +43,7 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.resp_body == "hello"
     assert {"x-custom", "yes"} in conn.resp_headers
 
-    events = TelemetryCollector.events(collector)
+    events = own_events(collector)
     assert Enum.any?(events, fn {name, _, _} -> name == [:embassy, :proxy, :start] end)
 
     assert Enum.any?(events, fn {name, _, meta} ->
@@ -200,7 +200,7 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.status == 502
     assert conn.resp_body == "Bad gateway: upstream unreachable"
 
-    events = TelemetryCollector.events(collector)
+    events = own_events(collector)
     assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
     assert meta.kind == :upstream_error
     assert meta.instance == ReverseProxyTest.Instance
@@ -219,7 +219,7 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.status == 426
     assert conn.resp_body =~ "WebSocket"
 
-    events = TelemetryCollector.events(collector)
+    events = own_events(collector)
     assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
     assert meta.kind == :unsupported_upgrade
   end
@@ -247,7 +247,7 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.status == 413
     assert conn.resp_body =~ "Payload"
 
-    events = TelemetryCollector.events(collector)
+    events = own_events(collector)
     assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
     assert meta.kind == :body_too_large
   end
@@ -362,7 +362,7 @@ defmodule Embassy.ReverseProxyTest do
     assert conn.status == 400
     assert conn.resp_body =~ "Bad Request"
 
-    events = TelemetryCollector.events(collector)
+    events = own_events(collector)
     assert [{[:embassy, :proxy, :exception], _measurements, meta}] = events
     assert meta.kind == :body_read_error
 

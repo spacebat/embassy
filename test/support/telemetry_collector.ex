@@ -36,5 +36,9 @@ defmodule Embassy.Test.TelemetryCollector do
   @doc false
   def __handle__(event_name, measurements, metadata, agent) do
     Agent.update(agent, &[{event_name, measurements, metadata} | &1])
+  catch
+    # The owning test exited (taking the agent with it) before on_exit
+    # detached this handler; another async test's event is not ours.
+    :exit, _ -> :ok
   end
 end

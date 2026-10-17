@@ -4,9 +4,32 @@ defmodule Embassy.ReverseProxy do
   backend (UDS or HTTP), reads the full response, and copies it onto
   the conn.
 
-  See the README for the full wiring example. See the v0.1 spec at
-  `docs/superpowers/specs/2026-05-19-embassy-v0.1-design.md` for the
-  design rationale, error handling matrix, and telemetry contract.
+  See the README for the full wiring example and the "Metrics and
+  dashboards" section.
+
+  ## Options
+
+    * `:embassy` (required) — the `Embassy` instance name.
+    * `:transport` (required) — `{:uds, path}` or `{:http, base_url}`.
+    * `:max_body_length` — request body limit in bytes (default
+      `50_000_000`); larger bodies get a 413.
+    * `:route` — telemetry route label (string or atom). Defaults to the
+      mount point from `conn.script_name`, `"/"` when unmounted.
+
+  ## Telemetry
+
+    * `[:embassy, :proxy, :start]` — `%{monotonic_time}`.
+    * `[:embassy, :proxy, :stop]` — `%{monotonic_time, duration,
+      request_body_bytes, response_body_bytes}`, metadata adds `status`.
+    * `[:embassy, :proxy, :exception]` — `%{monotonic_time, duration}`,
+      metadata adds `kind` (`:unsupported_upgrade`, `:body_too_large`,
+      `:body_read_error`, `:upstream_error`) and, for the last two,
+      `reason`.
+
+  Metadata on all three: `instance`, `method`, `request_path`,
+  `transport`, `route`, and `role` (`:direct` here; `Embassy.DualRoute`
+  proxy targets emit `:canonical` or `:shadow`). `request_path` is for
+  handlers, never a metric tag.
   """
 
   @behaviour Plug

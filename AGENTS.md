@@ -122,7 +122,8 @@ and cable code) and neither package has been tagged v0.1.0.
   trailers, no Claude attribution. The user is explicit about this.
 - Elixir 1.19+; user is moving to 1.20 soon. Don't backport, don't hedge
   with `Version.compare/2` guards.
-- **No dialyxir.**
+- **Dialyxir is manual only.** Run `mix dialyzer` by hand; it is not part
+  of `mix ci` or GitHub Actions.
 - No emojis anywhere — code, comments, commit messages, docs.
 - The user controls when commits happen. Propose, don't execute, unless
   explicitly asked.

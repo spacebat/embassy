@@ -178,14 +178,14 @@ consumer level. For a single-node Rails-behind-Phoenix deploy:
 children = [
   {Finch, name: MyApp.Finch},
   {Embassy, name: MyApp.Embassy, finch: MyApp.Finch},
-  {Emissary.Supervisor, name: MyApp.Emissary, workers: [
+  {Attache.Supervisor, workers: [
     [name: :puma, mode: :persistent, protocol: :raw, runner: "priv/start_puma.sh"]
   ]},
   MyAppWeb.Endpoint
 ]
 ```
 
-Emissary supervises Puma; embassy reverse-proxies to the UDS Puma is
+Attache supervises Puma; embassy reverse-proxies to the UDS Puma is
 listening on.
 
 ## Status

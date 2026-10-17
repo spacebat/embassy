@@ -62,6 +62,7 @@ defmodule Embassy.MixProject do
       {:igniter, "~> 0.6", optional: true},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.2"},
+      {:telemetry_metrics, "~> 1.0", optional: true},
       {:bypass, "~> 2.1", only: :test},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

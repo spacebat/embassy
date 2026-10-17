@@ -388,7 +388,7 @@ defmodule Embassy.ReverseProxyTest do
       assert [
                {[:embassy, :proxy, :start], _, start_meta},
                {[:embassy, :proxy, :stop], _, stop_meta}
-             ] = TelemetryCollector.events(collector)
+             ] = own_events(collector)
 
       assert %{route: "legacy", role: :direct} = start_meta
       assert %{route: "legacy", role: :direct, status: 200, request_path: "/foo"} = stop_meta
@@ -402,7 +402,7 @@ defmodule Embassy.ReverseProxyTest do
       %{conn(:get, "/posts/1") | script_name: ["posts"], path_info: ["1"]}
       |> Embassy.ReverseProxy.call(opts)
 
-      assert [{_, _, meta}] = TelemetryCollector.events(collector)
+      assert [{_, _, meta}] = own_events(collector)
       assert meta.route == "/posts"
     end
 
@@ -412,8 +412,15 @@ defmodule Embassy.ReverseProxyTest do
       Bypass.down(bypass)
       conn(:get, "/") |> Embassy.ReverseProxy.call(opts)
 
-      assert [{_, _, meta}] = TelemetryCollector.events(collector)
+      assert [{_, _, meta}] = own_events(collector)
       assert %{kind: :upstream_error, route: "/", role: :direct} = meta
     end
+  end
+
+  # Telemetry handlers are global; async modules emit proxy events too.
+  defp own_events(collector) do
+    collector
+    |> TelemetryCollector.events()
+    |> Enum.filter(fn {_, _, meta} -> meta.instance == ReverseProxyTest.Instance end)
   end
 end

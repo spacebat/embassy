@@ -5,8 +5,12 @@ defmodule Embassy.DualRoute.Target do
   in-process plug (`{:plug, module, plug_opts}`).
 
   `resolve/1` is called once at plug init (it pre-initialises plug opts).
-  `run/4` runs the target in capture-only mode (shadow). `run_canonical/4`
+  `run/5` runs the target in capture-only mode (shadow). `run_canonical/5`
   runs it and commits the response to the live conn.
+
+  `ctx` carries the telemetry route label and role (`:canonical` or
+  `:shadow`). Proxy targets emit `[:embassy, :proxy, *]` events with
+  them; plug targets ignore it.
   """
 
   import Plug.Conn, only: [put_resp_header: 3, send_resp: 3]
@@ -15,6 +19,8 @@ defmodule Embassy.DualRoute.Target do
   alias Embassy.Proxy
 
   @default_max_body_length 50_000_000
+
+  @type ctx :: %{route: String.t(), role: :canonical | :shadow}
 
   @type resolved ::
           {:proxy, %{transport: term(), max_body_length: non_neg_integer()}}
@@ -33,9 +39,9 @@ defmodule Embassy.DualRoute.Target do
   end
 
   @doc "Run the target without touching the live conn. Returns a Captured."
-  @spec run(resolved(), Plug.Conn.t(), binary(), map()) ::
+  @spec run(resolved(), Plug.Conn.t(), binary(), map(), ctx()) ::
           {:ok, Captured.t()} | {:error, term()}
-  def run({:plug, module, opts}, conn, body, _snapshot) do
+  def run({:plug, module, opts}, conn, body, _snapshot, _ctx) do
     captured =
       conn
       |> CaptureAdapter.build_conn(body)
@@ -45,10 +51,12 @@ defmodule Embassy.DualRoute.Target do
     {:ok, captured}
   end
 
-  def run({:proxy, %{transport: transport}}, conn, body, snapshot) do
+  def run({:proxy, %{transport: transport}}, conn, body, snapshot, ctx) do
+    metadata = Proxy.event_metadata(conn, snapshot.name, transport, ctx.route, ctx.role)
+    start_time = Proxy.emit_start(metadata)
     req = Proxy.build_request(conn, body, transport)
 
-    case Finch.request(req, snapshot.finch) do
+    case Proxy.forward(req, body, snapshot.finch, metadata, start_time) do
       {:ok, %Finch.Response{status: status, headers: headers, body: resp_body}} ->
         {:ok,
          %Captured{status: status, headers: Proxy.response_headers(headers), body: resp_body}}
@@ -64,15 +72,15 @@ defmodule Embassy.DualRoute.Target do
   (mirroring `Embassy.ReverseProxy`) and stashes the failure reason under
   `conn.private.embassy_proxy_error`.
   """
-  @spec run_canonical(resolved(), Plug.Conn.t(), binary(), map()) ::
+  @spec run_canonical(resolved(), Plug.Conn.t(), binary(), map(), ctx()) ::
           {Plug.Conn.t(), Captured.t()}
-  def run_canonical({:plug, _, _} = target, conn, body, snapshot) do
-    {:ok, captured} = run(target, conn, body, snapshot)
+  def run_canonical({:plug, _, _} = target, conn, body, snapshot, ctx) do
+    {:ok, captured} = run(target, conn, body, snapshot, ctx)
     {commit(conn, captured), captured}
   end
 
-  def run_canonical({:proxy, _} = target, conn, body, snapshot) do
-    case run(target, conn, body, snapshot) do
+  def run_canonical({:proxy, _} = target, conn, body, snapshot, ctx) do
+    case run(target, conn, body, snapshot, ctx) do
       {:ok, captured} ->
         {commit(conn, captured), captured}
 

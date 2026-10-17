@@ -14,7 +14,8 @@ defmodule Embassy.DualRoute.ResultTest do
 
   test "Result holds the experiment outcome and SendReporter receives it" do
     result = %Result{
-      route: "/posts",
+      route: "posts",
+      request_path: "/posts/1",
       method: "GET",
       verdict: :diff,
       comparator: :json,
@@ -29,5 +30,19 @@ defmodule Embassy.DualRoute.ResultTest do
 
     assert :ok = SendReporter.report(result)
     assert_received {:reported, :diff}
+  end
+
+  test "Result requires request_path" do
+    assert_raise ArgumentError, ~r/request_path/, fn ->
+      struct!(Result,
+        route: "posts",
+        method: "GET",
+        verdict: :match,
+        comparator: :exact,
+        canonical: :control,
+        control: nil,
+        candidate: nil
+      )
+    end
   end
 end

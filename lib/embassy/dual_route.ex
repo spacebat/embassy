@@ -28,7 +28,8 @@ defmodule Embassy.DualRoute do
       sample_rate: Keyword.get(opts, :sample_rate, 1.0),
       shadow_timeout: Keyword.get(opts, :shadow_timeout, 5_000),
       reporter: Keyword.get(opts, :reporter),
-      max_body_length: Keyword.get(opts, :max_body_length, @default_max_body_length)
+      max_body_length: Keyword.get(opts, :max_body_length, @default_max_body_length),
+      route: Keyword.get(opts, :route)
     }
   end
 
@@ -49,27 +50,50 @@ defmodule Embassy.DualRoute do
   end
 
   defp dispatch(conn, body, snapshot, opts) do
-    if experiment?(conn, opts) do
-      run_experiment(conn, body, snapshot, opts)
+    route = Proxy.route_label(conn, opts.route)
+    sampled = experiment?(conn, opts)
+    emit_dispatch(conn, route, sampled, opts)
+
+    if sampled do
+      run_experiment(conn, body, route, snapshot, opts)
     else
-      {conn, _captured} = Target.run_canonical(canonical_target(opts), conn, body, snapshot)
+      {conn, _captured} =
+        Target.run_canonical(canonical_target(opts), conn, body, snapshot, ctx(route, :canonical))
+
       conn
     end
   end
+
+  defp emit_dispatch(conn, route, sampled, opts) do
+    :telemetry.execute(
+      [:embassy, :dual_route, :dispatch],
+      %{monotonic_time: System.monotonic_time()},
+      %{
+        instance: opts.embassy,
+        route: route,
+        method: conn.method,
+        canonical: opts.canonical,
+        served_by: elem(canonical_target(opts), 0),
+        sampled: sampled
+      }
+    )
+  end
+
+  defp ctx(route, role), do: %{route: route, role: role}
 
   defp experiment?(conn, opts) do
     String.upcase(conn.method) in opts.methods and :rand.uniform() <= opts.sample_rate
   end
 
-  defp run_experiment(conn, body, snapshot, opts) do
+  defp run_experiment(conn, body, route, snapshot, opts) do
     canonical_start = System.monotonic_time()
 
     {conn, canonical_captured} =
-      Target.run_canonical(canonical_target(opts), conn, body, snapshot)
+      Target.run_canonical(canonical_target(opts), conn, body, snapshot, ctx(route, :canonical))
 
     canonical_duration = System.monotonic_time() - canonical_start
 
-    request = capture_request(conn, body)
+    request = capture_request(conn, body, route)
 
     Task.Supervisor.start_child(snapshot.task_supervisor, fn ->
       run_shadow(request, canonical_captured, canonical_duration, snapshot, opts)
@@ -81,8 +105,9 @@ defmodule Embassy.DualRoute do
   # The shadow task receives a minimal copy of the request (no live
   # adapter), so it can rebuild a conn for a plug target or a Finch
   # request for a proxy target without touching the original socket.
-  defp capture_request(conn, body) do
+  defp capture_request(conn, body, route) do
     %{
+      route: route,
       method: conn.method,
       request_path: conn.request_path,
       query_string: conn.query_string,
@@ -99,7 +124,15 @@ defmodule Embassy.DualRoute do
     shadow_conn = rebuild_conn(request)
 
     case run_with_timeout(
-           fn -> Target.run(shadow_target(opts), shadow_conn, request.body, snapshot) end,
+           fn ->
+             Target.run(
+               shadow_target(opts),
+               shadow_conn,
+               request.body,
+               snapshot,
+               ctx(request.route, :shadow)
+             )
+           end,
            snapshot,
            opts
          ) do
@@ -138,7 +171,7 @@ defmodule Embassy.DualRoute do
   end
 
   # `adapter` is a deliberate placeholder, never invoked: for a plug
-  # target `Target.run/4` swaps in `CaptureAdapter` before calling the
+  # target `Target.run/5` swaps in `CaptureAdapter` before calling the
   # plug, and for a proxy target only the request fields are read to
   # build the Finch request. Keep it that way - touching the adapter
   # here before the swap would surface inside the shadow as an :error.
@@ -183,7 +216,8 @@ defmodule Embassy.DualRoute do
     {verdict, diff} = split_verdict(verdict_detail)
 
     result = %Embassy.DualRoute.Result{
-      route: request.request_path,
+      route: request.route,
+      request_path: request.request_path,
       method: request.method,
       verdict: verdict,
       comparator: opts.comparator,
@@ -202,6 +236,7 @@ defmodule Embassy.DualRoute do
       %{
         instance: opts.embassy,
         route: result.route,
+        request_path: result.request_path,
         method: result.method,
         canonical: opts.canonical,
         comparator: opts.comparator,
@@ -228,7 +263,11 @@ defmodule Embassy.DualRoute do
     reporter.report(result)
   rescue
     e ->
-      emit_error(%{method: result.method, request_path: result.route}, opts, {:reporter_error, e})
+      emit_error(
+        %{route: result.route, method: result.method, request_path: result.request_path},
+        opts,
+        {:reporter_error, e}
+      )
   end
 
   defp emit_error(request, opts, reason) do
@@ -237,8 +276,9 @@ defmodule Embassy.DualRoute do
       %{monotonic_time: System.monotonic_time()},
       %{
         instance: opts.embassy,
-        route: Map.get(request, :request_path),
-        method: Map.get(request, :method),
+        route: request.route,
+        request_path: request.request_path,
+        method: request.method,
         reason: reason
       }
     )

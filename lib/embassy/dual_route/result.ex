@@ -7,13 +7,26 @@ defmodule Embassy.DualRoute.Result do
   units (the same units `[:embassy, :dual_route, :match | :diff]`
   telemetry reports); convert with
   `System.convert_time_unit(duration, :native, :microsecond)`.
+
+  `route` is the low-cardinality label (the `:route` option, or the
+  mount point); `request_path` is the concrete path of the request.
   """
 
   alias Embassy.DualRoute.Captured
 
-  @enforce_keys [:route, :method, :verdict, :comparator, :canonical, :control, :candidate]
+  @enforce_keys [
+    :route,
+    :request_path,
+    :method,
+    :verdict,
+    :comparator,
+    :canonical,
+    :control,
+    :candidate
+  ]
   defstruct [
     :route,
+    :request_path,
     :method,
     :verdict,
     :comparator,
@@ -28,6 +41,7 @@ defmodule Embassy.DualRoute.Result do
 
   @type t :: %__MODULE__{
           route: String.t(),
+          request_path: String.t(),
           method: String.t(),
           verdict: :match | :diff,
           comparator: term(),

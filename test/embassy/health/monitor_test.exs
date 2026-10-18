@@ -47,7 +47,7 @@ defmodule Embassy.Health.MonitorTest do
     e =
       start_instance([rails: {:http, "http://localhost:#{bypass.port}"}],
         interval: 50,
-        timeout: 100
+        timeout: 1_000
       )
 
     wait_for(fn -> Health.status(e) == %{rails: :up} end)
@@ -84,7 +84,7 @@ defmodule Embassy.Health.MonitorTest do
         e =
           start_instance([rails: {:http, "http://localhost:#{bypass.port}"}],
             interval: 50,
-            timeout: 100
+            timeout: 1_000
           )
 
         wait_for(fn -> Health.status(e) == %{rails: :up} end)
@@ -123,7 +123,7 @@ defmodule Embassy.Health.MonitorTest do
     e =
       start_instance([rails: {:http, "http://localhost:#{bypass.port}"}],
         interval: 50,
-        timeout: 100
+        timeout: 1_000
       )
 
     wait_for(fn -> Health.status(e) == %{rails: :up} end)

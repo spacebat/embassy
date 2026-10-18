@@ -333,7 +333,7 @@ listening on.
 
 ## Status
 
-v0.4.0. Not yet published to Hex.
+v0.4.1. Not yet published to Hex.
 
 ## License
 

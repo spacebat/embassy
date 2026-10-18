@@ -366,6 +366,28 @@ defmodule Embassy.DualRouteTest do
       assert error_meta.request_path == "/posts"
       assert error_meta.route == "/"
     end
+
+    test "a shadow proxy killed at shadow_timeout emits a proxy exception", %{embassy: e} do
+      port = Embassy.Test.SilentServer.start()
+
+      opts =
+        Embassy.DualRoute.init(
+          base_opts(e,
+            canonical: :control,
+            candidate: {:proxy, transport: {:http, "http://localhost:#{port}"}},
+            shadow_timeout: 100
+          )
+        )
+
+      conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
+      assert conn.status == 200
+
+      assert_receive {:telemetry, [:embassy, :proxy, :start], _, %{role: :shadow}}, 1_000
+      assert_receive {:telemetry, [:embassy, :proxy, :exception], meas, meta}, 1_000
+      assert %{role: :shadow, kind: :shadow_timeout, route: "/"} = meta
+      assert is_integer(meas.duration)
+      assert_receive {:telemetry, [:embassy, :dual_route, :error], _, _}, 1_000
+    end
   end
 
   # Telemetry handlers are global and other async modules emit proxy

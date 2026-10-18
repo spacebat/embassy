@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(no unreleased changes)
+### Added
+
+- `Embassy.Health`: probes run through a probe-only Finch (one
+  connection per upstream) started with `:upstreams`, so a saturated
+  proxy pool no longer reads as an upstream outage. `check/3` on an
+  instance without `:upstreams` still uses the instance `:finch`.
+- `Embassy.DualRoute`: a proxy shadow killed at `:shadow_timeout` now
+  emits `[:embassy, :proxy, :exception]` with `kind: :shadow_timeout`,
+  so every proxy `:start` has a matching `:stop` or `:exception`.
+
+### Changed
+
+- The instance supervisor uses `:rest_for_one`: a `Task.Supervisor`
+  restart restarts the health monitor with it instead of recording
+  every killed probe as a down upstream or crashing the monitor on its
+  next tick.
+- `Embassy.Health.status/1` returns `%{}` when the monitor is not
+  running, including when it exits between lookup and call.
+- README: the Rails-share numerator counts proxy exceptions; notes on
+  which exception kinds are client-side and on match-only routes in the
+  diff-rate query.
 
 ## [0.4.0] - 2026-10-18
 

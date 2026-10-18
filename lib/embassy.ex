@@ -11,14 +11,18 @@ defmodule Embassy do
 
     * `:name` — atom; the instance name. Must be unique within the BEAM.
     * `:finch` — atom; the name of a running `Finch` instance owned by
-      the consumer. Embassy never starts its own Finch.
+      the consumer. All proxying goes through it. Embassy starts no
+      Finch of its own for proxying; the only Finch it starts is the
+      small probe-only one that comes with `:upstreams`.
 
   ## Optional options
 
     * `:upstreams` — keyword list of `name => transport`
       (`{:uds, path}` or `{:http, base_url}`) to health-check. When
-      given, an `Embassy.Health.Monitor` is started for the instance.
-      Default `[]` (no monitor).
+      given, an `Embassy.Health.Monitor` and a probe-only Finch (one
+      connection per upstream, separate from `:finch` so a saturated
+      proxy pool never reads as an upstream outage) are started for the
+      instance. Default `[]` (no monitor).
     * `:health` — keyword list: `:interval` between probes in ms
       (default `5_000`) and probe `:timeout` in ms (default `1_000`).
 
@@ -76,6 +80,9 @@ defmodule Embassy do
   @doc false
   def health_monitor_name(name), do: Module.concat(name, HealthMonitor)
 
+  @doc false
+  def health_finch_name(name), do: Module.concat(name, HealthFinch)
+
   @impl true
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
@@ -89,27 +96,38 @@ defmodule Embassy do
       finch: finch,
       task_supervisor: task_supervisor,
       upstreams: upstreams,
-      health: health_opts(Keyword.get(opts, :health, []))
+      health: health_opts(name, upstreams, Keyword.get(opts, :health, []))
     }
 
+    # rest_for_one: the monitor's in-flight probes live under the
+    # Task.Supervisor, so if that restarts the monitor restarts with it
+    # rather than recording every killed probe as a down upstream.
     children =
       [
         {Registry, keys: :unique, name: registry_name(name), meta: [config: snapshot]},
         {Task.Supervisor, name: task_supervisor}
-      ] ++ health_monitor(snapshot)
+      ] ++ health_children(snapshot)
 
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init(children, strategy: :rest_for_one)
   end
 
-  defp health_monitor(%{upstreams: []}), do: []
-  defp health_monitor(snapshot), do: [{Embassy.Health.Monitor, snapshot}]
+  defp health_children(%{upstreams: []}), do: []
 
-  # `:probe` is undocumented and exists for tests.
-  defp health_opts(opts) do
+  defp health_children(snapshot) do
+    [
+      {Finch, name: snapshot.health.finch, pools: %{default: [size: 1]}},
+      {Embassy.Health.Monitor, snapshot}
+    ]
+  end
+
+  # `:probe` is undocumented and exists for tests. `:finch` is the
+  # probe-only Finch, nil when no upstreams (and so no monitor) exist.
+  defp health_opts(name, upstreams, opts) do
     %{
       interval: Keyword.get(opts, :interval, 5_000),
       timeout: Keyword.get(opts, :timeout, 1_000),
-      probe: Keyword.get(opts, :probe, &Embassy.Health.check/3)
+      probe: Keyword.get(opts, :probe, &Embassy.Health.check/3),
+      finch: if(upstreams == [], do: nil, else: health_finch_name(name))
     }
   end
 

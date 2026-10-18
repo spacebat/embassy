@@ -174,6 +174,10 @@ defmodule Embassy.DualRoute do
           opts
         )
 
+      {:timeout, start} ->
+        emit_shadow_timeout(shadow_target(opts), shadow_conn, request.route, snapshot, start)
+        emit_error(request, opts, :shadow_timeout)
+
       {:error, reason} ->
         emit_error(request, opts, reason)
     end
@@ -194,9 +198,19 @@ defmodule Embassy.DualRoute do
       {:ok, {:ok, captured}} -> {:ok, captured, System.monotonic_time() - start}
       {:ok, {:error, reason}} -> {:error, {:target_error, reason}}
       {:exit, reason} -> {:error, {:shadow_exit, reason}}
-      nil -> {:error, :shadow_timeout}
+      nil -> {:timeout, start}
     end
   end
+
+  # A proxy shadow killed at the deadline emitted `:start` but nothing
+  # else; close the pair so starts and stops/exceptions balance.
+  defp emit_shadow_timeout({:proxy, %{transport: transport}}, conn, route, snapshot, start) do
+    conn
+    |> Proxy.event_metadata(snapshot.name, transport, route, :shadow)
+    |> Proxy.emit_exception(start, :shadow_timeout)
+  end
+
+  defp emit_shadow_timeout(_plug, _conn, _route, _snapshot, _start), do: :ok
 
   # `adapter` is a deliberate placeholder, never invoked: for a plug
   # target `Target.run/5` swaps in `CaptureAdapter` before calling the

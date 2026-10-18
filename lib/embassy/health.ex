@@ -29,7 +29,10 @@ defmodule Embassy.Health do
   @type status :: :unknown | :up | {:down, term()}
 
   @doc """
-  Probe `transport` once through the instance's Finch with `HEAD /`.
+  Probe `transport` once with `HEAD /`. On an instance with
+  `:upstreams` this goes through the probe-only Finch, never the proxy
+  pool; without `:upstreams` there is no probe Finch and the instance's
+  `:finch` is used.
 
   Options: `:timeout` in ms (default: the instance's `health: [timeout:]`,
   1_000 unless set).
@@ -41,7 +44,10 @@ defmodule Embassy.Health do
 
     transport
     |> probe_request()
-    |> Finch.request(snapshot.finch, receive_timeout: timeout, pool_timeout: timeout)
+    |> Finch.request(snapshot.health.finch || snapshot.finch,
+      receive_timeout: timeout,
+      pool_timeout: timeout
+    )
     |> case do
       {:ok, %Finch.Response{}} -> :ok
       {:error, reason} -> {:error, reason}
@@ -56,12 +62,9 @@ defmodule Embassy.Health do
   """
   @spec status(atom()) :: %{atom() => status()}
   def status(instance) do
-    monitor = Embassy.health_monitor_name(instance)
-
-    case Process.whereis(monitor) do
-      nil -> %{}
-      _pid -> GenServer.call(monitor, :status)
-    end
+    GenServer.call(Embassy.health_monitor_name(instance), :status)
+  catch
+    :exit, {:noproc, _} -> %{}
   end
 
   defp probe_request({:http, base}), do: Finch.build(:head, base)

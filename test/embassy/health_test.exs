@@ -34,6 +34,34 @@ defmodule Embassy.HealthTest do
     assert Health.status(e) == %{}
   end
 
+  test "status/1 is %{} when the monitor name is registered to a dead process" do
+    name = :"health_dead_#{System.unique_integer([:positive])}"
+    start_supervised!({Finch, name: Module.concat(name, Finch)})
+    start_supervised!({Embassy, name: name, finch: Module.concat(name, Finch)})
+
+    {:ok, pid} = Agent.start(fn -> :ok end, name: Embassy.health_monitor_name(name))
+    Agent.stop(pid)
+    assert Health.status(name) == %{}
+  end
+
+  test "check/3 does not go through the proxy Finch" do
+    name = :"health_own_finch_#{System.unique_integer([:positive])}"
+    bypass = Bypass.open()
+    Bypass.stub(bypass, "HEAD", "/", &Plug.Conn.resp(&1, 200, ""))
+    upstream = {:http, "http://localhost:#{bypass.port}"}
+
+    # The monitor's own probes are stubbed so only check/3 hits Bypass.
+    start_supervised!(
+      {Embassy,
+       name: name,
+       finch: Module.concat(name, NotRunning),
+       upstreams: [rails: upstream],
+       health: [probe: fn _, _, _ -> :ok end]}
+    )
+
+    assert :ok = Health.check(name, upstream, [])
+  end
+
   test "Embassy rejects a bad :upstreams entry" do
     name = :"health_bad_#{System.unique_integer([:positive])}"
 

@@ -115,6 +115,36 @@ defmodule Embassy.Health.MonitorTest do
     assert micros < 100_000
   end
 
+  test "a task supervisor restart restarts the monitor without a false down" do
+    {:ok, collector} = TelemetryCollector.attach([[:embassy, :upstream, :check]])
+    bypass = Bypass.open()
+    Bypass.stub(bypass, "HEAD", "/", &Plug.Conn.resp(&1, 200, ""))
+
+    e =
+      start_instance([rails: {:http, "http://localhost:#{bypass.port}"}],
+        interval: 50,
+        timeout: 100
+      )
+
+    wait_for(fn -> Health.status(e) == %{rails: :up} end)
+    monitor = Process.whereis(Embassy.health_monitor_name(e))
+
+    log =
+      capture_log(fn ->
+        Process.exit(Process.whereis(Embassy.task_supervisor_name(e)), :kill)
+        wait_for(fn -> Process.whereis(Embassy.health_monitor_name(e)) not in [nil, monitor] end)
+        wait_for(fn -> Health.status(e) == %{rails: :up} end)
+        Process.sleep(100)
+      end)
+
+    refute log =~ "down"
+
+    refute Enum.any?(TelemetryCollector.events(collector), fn
+             {_, _, %{instance: ^e, result: {:down, {:probe_exit, _}}}} -> true
+             _ -> false
+           end)
+  end
+
   test "probe crash marks upstream down" do
     capture_log(fn ->
       e =
@@ -123,8 +153,9 @@ defmodule Embassy.Health.MonitorTest do
           probe: fn _, _, _ -> raise "boom" end
         )
 
+      monitor = Process.whereis(Embassy.health_monitor_name(e))
       wait_for(fn -> match?(%{rails: {:down, {:probe_exit, _}}}, Health.status(e)) end)
-      assert Process.alive?(Process.whereis(Embassy.health_monitor_name(e)))
+      assert Process.whereis(Embassy.health_monitor_name(e)) == monitor
     end)
   end
 

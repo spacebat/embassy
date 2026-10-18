@@ -223,10 +223,15 @@ DualRoute. Exclude `/cable` and any health or metrics routes from the
 denominator:
 
 ```promql
-sum(rate(embassy_proxy_duration_count{role!="shadow"}[5m]))
+(sum(rate(embassy_proxy_duration_count{role!="shadow"}[5m]))
+ + sum(rate(embassy_proxy_exception_count{role!="shadow"}[5m])))
 /
 sum(rate(phoenix_router_dispatch_stop_count{route!~"/cable.*|/health.*|/metrics"}[5m]))
 ```
+
+The exception term keeps the share honest during a Rails outage: a
+request that reached the proxy and got a 502 or 413 back still went to
+Rails' routes, so it counts.
 
 DualRoute routes, by who serves them (`proxy` is still Rails):
 
@@ -241,7 +246,10 @@ histogram_quantile(0.95,
   sum by (route, le) (rate(embassy_proxy_duration_bucket{role!="shadow"}[5m])))
 ```
 
-Upstream errors by kind:
+Proxy exceptions by kind. `upstream_error` is Rails unreachable or not
+answering; `shadow_timeout` is a DualRoute shadow killed at its
+deadline; `body_too_large`, `body_read_error` and `unsupported_upgrade`
+are client-side and say nothing about Rails:
 
 ```promql
 sum by (kind) (rate(embassy_proxy_exception_count[5m]))
@@ -262,6 +270,10 @@ sum by (route) (rate(embassy_dual_route_diff_count[5m]))
  + sum by (route) (rate(embassy_dual_route_match_count[5m])))
 ```
 
+A route that has never produced a diff has no `diff_count` series yet,
+so it has no value here rather than a zero. Read a missing route as a
+clean one, or plot `embassy_dual_route_diff_count` alone for alerting.
+
 ### Upstream health
 
 Give the instance its upstreams and it probes them:
@@ -274,8 +286,10 @@ Give the instance its upstreams and it probes them:
  health: [interval: 5_000, timeout: 1_000]}
 ```
 
-Each upstream gets `HEAD /` every `interval` ms. Any HTTP response is up;
-a connection error or timeout is down. Results go to the
+Each upstream gets `HEAD /` every `interval` ms through a probe-only
+Finch the instance starts for itself, so a saturated proxy pool never
+reads as an upstream outage. Any HTTP response is up; a connection error
+or timeout is down. Results go to the
 `embassy_upstream_up` gauge and `Embassy.Health.status(MyApp.Embassy)`
 (`%{rails: :up}`), and a transition logs once (a warning going down, an
 info line coming back).

@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(no unreleased changes)
+### Fixed
+
+- `Embassy.ReverseProxy` and `Embassy.DualRoute` replayed upstream
+  response headers with `put_resp_header`, which overwrites by name, so
+  only the last `set-cookie` survived. `Embassy.Proxy.put_response_headers/2`
+  replaces each name once and keeps every repeat, in order.
 
 ## [0.4.1] - 2026-10-18
 

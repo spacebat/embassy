@@ -51,6 +51,22 @@ defmodule Embassy.ReverseProxyTest do
            end)
   end
 
+  test "keeps repeated response headers such as set-cookie", %{bypass: bypass, opts: opts} do
+    Bypass.expect_once(bypass, "GET", "/login", fn conn ->
+      conn
+      |> Plug.Conn.prepend_resp_headers([{"set-cookie", "a=1"}, {"set-cookie", "b=2"}])
+      |> Plug.Conn.put_resp_header("cache-control", "no-store")
+      |> Plug.Conn.resp(200, "ok")
+    end)
+
+    conn = conn(:get, "/login") |> Embassy.ReverseProxy.call(opts)
+
+    # Bypass's Cowboy may reorder repeated headers on the wire; both must arrive.
+    assert conn |> Plug.Conn.get_resp_header("set-cookie") |> Enum.sort() == ["a=1", "b=2"]
+    # Upstream's value replaces Plug's default rather than adding a second one.
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["no-store"]
+  end
+
   test "POST forwards body bytes to upstream", %{bypass: bypass, opts: opts} do
     Bypass.expect_once(bypass, "POST", "/echo", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)

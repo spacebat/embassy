@@ -70,6 +70,20 @@ defmodule Embassy.Proxy do
   end
 
   @doc """
+  Put upstream response headers on `conn`, hop-by-hop filtered. Each name
+  upstream sends replaces any value already on the conn (such as Plug's
+  default `cache-control`), and repeated headers such as `set-cookie` are
+  all kept, in order.
+  """
+  @spec put_response_headers(Plug.Conn.t(), [{String.t(), String.t()}]) :: Plug.Conn.t()
+  def put_response_headers(conn, headers) do
+    headers = response_headers(headers)
+    names = MapSet.new(headers, &elem(&1, 0))
+    kept = Enum.reject(conn.resp_headers, fn {name, _} -> MapSet.member?(names, name) end)
+    %{conn | resp_headers: kept ++ headers}
+  end
+
+  @doc """
   Low-cardinality route label for telemetry. An explicit `route` (atom or
   string) wins; otherwise the mount point from `conn.script_name`, so
   `forward "/posts", ...` gives `"/posts"` and an unmounted plug gives

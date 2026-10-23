@@ -19,6 +19,18 @@ defmodule Embassy.DualRouteTest do
     def call(conn, _opts), do: Plug.Conn.send_resp(conn, 200, "candidate")
   end
 
+  defmodule CookiePlug do
+    @behaviour Plug
+    @impl true
+    def init(opts), do: opts
+    @impl true
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.prepend_resp_headers([{"set-cookie", "a=1"}, {"set-cookie", "b=2"}])
+      |> Plug.Conn.send_resp(200, "control")
+    end
+  end
+
   setup do
     name = :"dr_#{System.unique_integer([:positive])}"
     start_supervised!({Finch, name: Module.concat(name, Finch)})
@@ -41,6 +53,14 @@ defmodule Embassy.DualRouteTest do
     conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
     assert conn.status == 200
     assert conn.resp_body == "control"
+  end
+
+  test "the served response keeps repeated headers such as set-cookie", %{embassy: e} do
+    opts =
+      Embassy.DualRoute.init(base_opts(e, canonical: :control, control: {:plug, CookiePlug, []}))
+
+    conn = conn(:get, "/posts") |> Embassy.DualRoute.call(opts)
+    assert Plug.Conn.get_resp_header(conn, "set-cookie") == ["a=1", "b=2"]
   end
 
   test "canonical :candidate returns the candidate response", %{embassy: e} do

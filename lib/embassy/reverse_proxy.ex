@@ -157,13 +157,7 @@ defmodule Embassy.ReverseProxy do
   # sobelow_skip ["XSS.SendResp"]
   defp copy_response(conn, %Finch.Response{status: status, headers: headers, body: body}) do
     conn
-    |> merge_response_headers(headers)
+    |> Proxy.put_response_headers(headers)
     |> send_resp(status, body)
-  end
-
-  defp merge_response_headers(conn, headers) do
-    Enum.reduce(Proxy.response_headers(headers), conn, fn {name, value}, acc ->
-      put_resp_header(acc, name, value)
-    end)
   end
 end

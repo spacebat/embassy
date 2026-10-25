@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (no unreleased changes)
 
+## [0.4.3] - 2026-10-25
+
+### Added
+
+- `Embassy.ReverseProxy` takes a `:receive_timeout` option (milliseconds,
+  default `15_000`, the same as Finch's own) that bounds the wait on the
+  upstream. `Embassy.Proxy.forward/6` accepts it as an option. A slower
+  upstream takes the `:upstream_error` path and answers 502.
+
 ## [0.4.2] - 2026-10-23
 
 ### Fixed

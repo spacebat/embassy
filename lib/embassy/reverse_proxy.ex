@@ -13,6 +13,9 @@ defmodule Embassy.ReverseProxy do
     * `:transport` (required) — `{:uds, path}` or `{:http, base_url}`.
     * `:max_body_length` — request body limit in bytes (default
       `50_000_000`); larger bodies get a 413.
+    * `:receive_timeout` — milliseconds to wait on the upstream, passed to
+      `Finch.request/3` (default `15_000`). An upstream that stays silent
+      longer yields the `:upstream_error` path (502).
     * `:route` — telemetry route label (string or atom). Defaults to the
       mount point from `conn.script_name`, `"/"` when unmounted.
       Set it explicitly under a `Plug.Router` `forward` with dynamic
@@ -53,6 +56,7 @@ defmodule Embassy.ReverseProxy do
       embassy: embassy,
       transport: transport,
       max_body_length: max_body_length,
+      receive_timeout: Keyword.get(opts, :receive_timeout, Proxy.default_receive_timeout()),
       route: Keyword.get(opts, :route)
     }
   end
@@ -109,7 +113,7 @@ defmodule Embassy.ReverseProxy do
         handle_body_read_error(conn, metadata, start_time, reason)
 
       {body, conn} ->
-        dispatch_upstream(conn, snapshot, transport, body, metadata, start_time)
+        dispatch_upstream(conn, snapshot, transport, body, metadata, start_time, opts)
     end
   end
 
@@ -133,10 +137,12 @@ defmodule Embassy.ReverseProxy do
     |> send_resp(400, "Bad Request: failed to read request body")
   end
 
-  defp dispatch_upstream(conn, snapshot, transport, body, metadata, start_time) do
+  defp dispatch_upstream(conn, snapshot, transport, body, metadata, start_time, opts) do
     req = Proxy.build_request(conn, body, transport)
 
-    case Proxy.forward(req, body, snapshot.finch, metadata, start_time) do
+    case Proxy.forward(req, body, snapshot.finch, metadata, start_time,
+           receive_timeout: opts.receive_timeout
+         ) do
       {:ok, resp} ->
         copy_response(conn, resp)
 

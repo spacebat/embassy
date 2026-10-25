@@ -13,6 +13,12 @@ defmodule Embassy.Proxy do
 
   alias Embassy.BodyCache
 
+  @default_receive_timeout 15_000
+
+  @doc "Default upstream receive timeout in milliseconds."
+  @spec default_receive_timeout() :: pos_integer()
+  def default_receive_timeout, do: @default_receive_timeout
+
   @hop_by_hop ~w(
     connection
     keep-alive
@@ -136,11 +142,16 @@ defmodule Embassy.Proxy do
   @doc """
   Send `req` through `finch`, emitting `:stop` on a response or an
   `:exception` of kind `:upstream_error` (with `reason`) on failure.
+
+  Options: `:receive_timeout` (milliseconds, default `15_000`) is passed to
+  `Finch.request/3`.
   """
-  @spec forward(Finch.Request.t(), binary(), atom(), map(), integer()) ::
+  @spec forward(Finch.Request.t(), binary(), atom(), map(), integer(), keyword()) ::
           {:ok, Finch.Response.t()} | {:error, term()}
-  def forward(req, body, finch, metadata, start_time) do
-    case Finch.request(req, finch) do
+  def forward(req, body, finch, metadata, start_time, opts \\ []) do
+    receive_timeout = Keyword.get(opts, :receive_timeout, @default_receive_timeout)
+
+    case Finch.request(req, finch, receive_timeout: receive_timeout) do
       {:ok, %Finch.Response{} = resp} ->
         now = System.monotonic_time()
 

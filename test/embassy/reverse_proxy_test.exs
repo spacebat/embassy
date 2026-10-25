@@ -222,6 +222,63 @@ defmodule Embassy.ReverseProxyTest do
     assert meta.instance == ReverseProxyTest.Instance
   end
 
+  describe ":receive_timeout" do
+    setup %{bypass: bypass} do
+      Bypass.stub(bypass, "GET", "/slow", fn conn ->
+        Process.sleep(600)
+        Plug.Conn.resp(conn, 200, "late")
+      end)
+
+      :ok
+    end
+
+    defp proxy_opts(bypass, extra) do
+      Embassy.ReverseProxy.init(
+        [
+          embassy: ReverseProxyTest.Instance,
+          transport: {:http, "http://localhost:#{bypass.port}"}
+        ] ++ extra
+      )
+    end
+
+    test "an upstream slower than the timeout takes the :upstream_error path" do
+      port = Embassy.Test.SilentServer.start()
+      {:ok, collector} = TelemetryCollector.attach([[:embassy, :proxy, :exception]])
+
+      opts =
+        Embassy.ReverseProxy.init(
+          embassy: ReverseProxyTest.Instance,
+          transport: {:http, "http://127.0.0.1:#{port}"},
+          receive_timeout: 200
+        )
+
+      # The silent server never replies, so only the option can end this
+      # within 2 s: the 15 s default would hold the request far longer.
+      # (A Bypass stub can't be used here: it exits the test when the client
+      # hangs up mid-handler.)
+      {micros, conn} =
+        :timer.tc(fn -> conn(:get, "/slow") |> Embassy.ReverseProxy.call(opts) end)
+
+      assert conn.status == 502
+      assert micros < 2_000_000
+      assert [{_, _, %{kind: :upstream_error}}] = own_events(collector)
+    end
+
+    test "an upstream within the timeout succeeds", %{bypass: bypass} do
+      conn =
+        conn(:get, "/slow")
+        |> Embassy.ReverseProxy.call(proxy_opts(bypass, receive_timeout: 5_000))
+
+      assert conn.status == 200
+      assert conn.resp_body == "late"
+    end
+
+    test "defaults to 15 seconds", %{bypass: bypass} do
+      assert %{receive_timeout: 15_000} = proxy_opts(bypass, [])
+      assert Embassy.Proxy.default_receive_timeout() == 15_000
+    end
+  end
+
   test "WebSocket upgrade request short-circuits to 426 with telemetry", %{opts: opts} do
     {:ok, collector} =
       TelemetryCollector.attach([[:embassy, :proxy, :exception]])
